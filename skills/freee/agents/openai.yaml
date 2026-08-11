@@ -1,0 +1,4 @@
+interface:
+  display_name: "freee Attendance"
+  short_description: "Safely manage freee attendance through API or Playwright"
+  default_prompt: "Use $freee to check my current attendance status before taking any action."

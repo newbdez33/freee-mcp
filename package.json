@@ -1,0 +1,31 @@
+{
+  "name": "freee-agent-cli",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A safety-first freee attendance MCP server and CLI for coding agents",
+  "type": "module",
+  "bin": {
+    "freee-agent": "dist/cli.js",
+    "freee-mcp": "dist/mcp-entry.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run build && node --test",
+    "freee": "npm run build --silent && node dist/cli.js",
+    "mcp": "npm run build --silent && node dist/mcp-entry.js",
+    "test": "npm run check"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@napi-rs/keyring": "^1.3.0",
+    "playwright": "^1.62.1",
+    "zod": "^4.4.3"
+  }
+}

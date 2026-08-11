@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+
+# Never commit OAuth material.
+*.token
+*.secret
+oauth-state.json
+.freee/

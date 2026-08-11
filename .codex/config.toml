@@ -1,0 +1,7 @@
+[mcp_servers.freee]
+command = "node"
+args = ["dist/mcp-entry.js"]
+startup_timeout_sec = 20
+tool_timeout_sec = 180
+required = true
+default_tools_approval_mode = "writes"

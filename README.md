@@ -7,7 +7,7 @@ This project gives Codex and Claude Code safe, testable access to freee HR atten
 - `FREEE_BACKEND=api|playwright` explicitly selects the backend for every business operation. Only `auto` selects a backend by detecting an existing API configuration.
 - A backend failure is final for that operation. The system never falls back to the other backend.
 - MCP is the primary business-operation interface for Codex and Claude Code, providing tool discovery, input schemas, read-only annotations, and client-side write approval prompts.
-- The CLI remains the deterministic local interface for OAuth setup, System Keychain configuration, 1Password migration, and troubleshooting.
+- The CLI remains the deterministic local interface for OAuth setup, System Keychain configuration, and troubleshooting.
 - MCP and CLI call the same `FreeeService`; authentication, business rules, and backend selection are not duplicated.
 - One shared Agent Skill directs Codex and Claude Code to prefer MCP and use the CLI only when MCP is unavailable or local setup is required. An error must never be bypassed by switching interfaces.
 - The Playwright backend stores the freee username and password in System Keychain and fills them only on the expected official freee login page.
@@ -69,11 +69,7 @@ npm run freee -- approvals detail --id APPLICATION_NO
 npm run freee -- browser status
 npm run freee -- browser credentials-status
 
-# Credential migration (writes to System Keychain)
-npm run freee -- auth migrate-to-system --confirm
-npm run freee -- browser migrate-from-1password --confirm
-
-# Configure Playwright credentials securely without 1Password
+# Configure Playwright credentials securely in System Keychain
 npm run freee -- browser configure --confirm
 
 # Real writes: use --confirm only when the user explicitly requested the exact action
@@ -126,10 +122,9 @@ Only non-sensitive switches belong in `.env`. Never store a username, password, 
 
 ## API credentials
 
-The CLI supports three credential backends:
+The CLI supports two credential modes:
 
-- `system`: recommended default. Client Secret and OAuth Tokens use macOS Keychain, Windows Credential Manager, or the Linux system keyring.
-- `1password`: optional Client Secret source. OAuth Tokens still default to System Keyring to reduce desktop authorization prompts.
+- `system`: the normal and recommended mode. Client Secret and OAuth Tokens use macOS Keychain, Windows Credential Manager, or the Linux system keyring.
 - `environment`: intended for CI, servers, or a temporary Access Token. It cannot rotate a Refresh Token automatically.
 
 Ordinary configuration lives in `.freee/oauth.json`, which contains only the Client ID, callback address, and backend metadata. It never contains a Client Secret or Token.
@@ -142,28 +137,6 @@ npm run freee -- auth configure --store system --client-id YOUR_CLIENT_ID --conf
 
 The command reads the Client Secret through a hidden interactive prompt. It stores the Client Secret and OAuth Token set in the operating-system credential store. The Access Token and one-time Refresh Token are updated together.
 
-### 1Password (optional)
-
-Prepare an item with `client id` and `Client Secret` fields, then run:
-
-```bash
-npm run freee -- auth configure --store 1password \
-  --token-store system --service freee-agent \
-  --vault Private --client-item freee --confirm
-```
-
-Only the Client Secret is read from 1Password; OAuth Tokens are written to System Keyring. Normal API calls therefore read only Keychain. OAuth login or Token refresh still needs the 1Password Client Secret. Users without 1Password should use System Keyring mode.
-
-An existing 1Password Client Secret plus System Keyring Token setup can be migrated without exposing plaintext:
-
-```bash
-npm run freee -- auth migrate-to-system --confirm
-```
-
-The CLI reads the existing Client ID and Secret internally, writes and verifies them in System Keyring, and only then switches the ordinary configuration. Existing System Keyring Tokens are not rewritten. Legacy 1Password Tokens are copied and verified when present. The source 1Password item is never deleted, and no credential value is printed.
-
-The legacy `op://Private/freee/API KEY` Access Token path remains available for migration but is not the default for new users.
-
 ### Environment mode (CI or temporary use)
 
 Inject `FREEE_ACCESS_TOKEN` through a CI Secret, container Secret, or parent process, then run:
@@ -173,8 +146,6 @@ npm run freee -- auth configure --store environment --confirm
 ```
 
 Environment mode cannot safely persist the new Refresh Token returned by freee, so it does not support OAuth login or automatic refresh. Never put a real Token in the repository `.env` file.
-
-If the 1Password CLI waits for desktop approval, unlock 1Password and allow command-line integration.
 
 ## OAuth renewal
 
@@ -200,17 +171,7 @@ The local `.freee/oauth.json` contains no Token or Secret and is ignored by Git.
 
 ## Playwright credentials
 
-If the username and password already exist in a standard 1Password Login item, migrate them once:
-
-```bash
-npm run freee -- browser migrate-from-1password \
-  --vault Private --item freee --confirm
-npm run freee -- browser credentials-status
-```
-
-The CLI reads only the Login item's username and password fields, stores them together in the `freee-agent-web` System Keychain entry, and verifies the readback. It never prints the values or modifies or deletes the source item.
-
-Users without 1Password can run this directly in a local interactive terminal:
+Run this directly in a local interactive terminal:
 
 ```bash
 npm run freee -- browser configure --confirm
@@ -237,7 +198,7 @@ The canonical Skill lives at `skills/freee`:
 - Codex: `.agents/skills/freee` links to the canonical Skill.
 - Claude Code: `.claude/skills/freee` links to the same Skill.
 
-Both clients therefore share the same MCP mappings, CLI setup guidance, and safety rules. Business operations prefer MCP; authentication setup, credential migration, and MCP troubleshooting continue to use the CLI.
+Both clients therefore share the same MCP mappings, CLI setup guidance, and safety rules. Business operations prefer MCP; authentication setup and MCP troubleshooting continue to use the CLI.
 
 ## Documentation
 

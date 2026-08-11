@@ -4,11 +4,9 @@ import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
 
 import { type ClockAction, clockActionMap } from "./attendance.js";
-import { readOAuthConfig, type SecretStoreKind, type TokenStoreKind } from "./auth-config.js";
+import { readOAuthConfig, type SecretStoreKind } from "./auth-config.js";
 import { configureAuthentication } from "./auth-configure.js";
-import { migrateAuthenticationToSystem } from "./auth-migrate.js";
 import { configureBrowserCredentials } from "./browser-credential-configure.js";
-import { migrateBrowserCredentialsFromOnePassword } from "./browser-credential-migrate.js";
 import type {
   BrowserApprovalAction,
   BrowserApprovalListStatus,
@@ -38,12 +36,6 @@ async function main(argv: string[]): Promise<void> {
     await runAuthConfigure(rest);
     return;
   }
-  if (group === "auth" && command === "migrate-to-system") {
-    const confirm = parseConfirmationOnly(rest);
-    const result = await migrateAuthenticationToSystem(confirm);
-    printSuccess("auth migrate-to-system", result);
-    return;
-  }
   if (group === "auth" && command === "login") {
     await runOAuthLogin(rest);
     return;
@@ -70,10 +62,6 @@ async function main(argv: string[]): Promise<void> {
       clientFingerprint: createHash("sha256").update(credentials.clientId).digest("hex").slice(0, 12),
       redirectUri: config.redirectUri,
     });
-    return;
-  }
-  if (group === "browser" && command === "migrate-from-1password") {
-    await runBrowserCredentialMigration(rest);
     return;
   }
   if (group === "browser" && command === "configure") {
@@ -301,22 +289,6 @@ function parseApprovalTargetOptions(
   };
 }
 
-function parseConfirmationOnly(args: string[]): boolean {
-  try {
-    const parsed = parseArgs({
-      args,
-      options: { confirm: { type: "boolean", default: false } },
-      strict: true,
-      allowPositionals: false,
-    });
-    return parsed.values.confirm === true;
-  } catch {
-    throw new CliError("INVALID_ARGUMENTS", "This command accepts only `--confirm`.", {
-      exitCode: 2,
-    });
-  }
-}
-
 function parsePositiveIntegerOption(value: string | undefined, name: string): number | undefined {
   if (value === undefined) {
     return undefined;
@@ -342,10 +314,6 @@ async function runAuthConfigure(args: string[]): Promise<void> {
         "client-id": { type: "string" },
         "redirect-uri": { type: "string", default: "http://127.0.0.1:48181/callback" },
         service: { type: "string", default: "freee-agent" },
-        vault: { type: "string", default: "Private" },
-        "client-item": { type: "string", default: "freee" },
-        "token-item": { type: "string", default: "freee OAuth Tokens" },
-        "token-store": { type: "string" },
         confirm: { type: "boolean", default: false },
       },
       strict: true,
@@ -358,24 +326,8 @@ async function runAuthConfigure(args: string[]): Promise<void> {
   }
 
   const store = parsed.values.store;
-  if (store !== "system" && store !== "1password" && store !== "environment") {
-    throw new CliError("INVALID_SECRET_STORE", "`--store` must be system, 1password, or environment.", {
-      exitCode: 2,
-    });
-  }
-  const tokenStore = parsed.values["token-store"];
-  if (tokenStore !== undefined && tokenStore !== "system" && tokenStore !== "1password") {
-    throw new CliError("INVALID_TOKEN_STORE", "`--token-store` must be system or 1password.", {
-      exitCode: 2,
-    });
-  }
-  if (store === "system" && tokenStore !== undefined && tokenStore !== "system") {
-    throw new CliError("INVALID_TOKEN_STORE", "System credential mode requires `--token-store system`.", {
-      exitCode: 2,
-    });
-  }
-  if (store === "environment" && tokenStore !== undefined) {
-    throw new CliError("INVALID_TOKEN_STORE", "Environment mode does not persist OAuth Tokens.", {
+  if (store !== "system" && store !== "environment") {
+    throw new CliError("INVALID_SECRET_STORE", "`--store` must be system or environment.", {
       exitCode: 2,
     });
   }
@@ -387,10 +339,6 @@ async function runAuthConfigure(args: string[]): Promise<void> {
       ? { clientId: parsed.values["client-id"] }
       : {}),
     service: String(parsed.values.service),
-    vault: String(parsed.values.vault),
-    clientItem: String(parsed.values["client-item"]),
-    tokenItem: String(parsed.values["token-item"]),
-    ...(typeof tokenStore === "string" ? { tokenStore: tokenStore as TokenStoreKind } : {}),
   });
   printSuccess("auth configure", { configured: true, ...result });
 }
@@ -456,37 +404,6 @@ async function runOAuthLogin(args: string[]): Promise<void> {
     expiresAt: stored.expiresAt,
     scope: stored.scope,
   });
-}
-
-async function runBrowserCredentialMigration(args: string[]): Promise<void> {
-  let parsed: ReturnType<typeof parseArgs>;
-  try {
-    parsed = parseArgs({
-      args,
-      options: {
-        vault: { type: "string", default: "Private" },
-        item: { type: "string", default: "freee" },
-        service: { type: "string", default: "freee-agent-web" },
-        confirm: { type: "boolean", default: false },
-      },
-      strict: true,
-      allowPositionals: false,
-    });
-  } catch {
-    throw new CliError(
-      "INVALID_ARGUMENTS",
-      "Invalid browser credential migration options.",
-      { exitCode: 2 },
-    );
-  }
-
-  const result = await migrateBrowserCredentialsFromOnePassword({
-    confirm: parsed.values.confirm === true,
-    vault: String(parsed.values.vault),
-    item: String(parsed.values.item),
-    service: String(parsed.values.service),
-  });
-  printSuccess("browser migrate-from-1password", result);
 }
 
 async function runBrowserCredentialConfiguration(args: string[]): Promise<void> {
@@ -594,14 +511,12 @@ function printHelp(): void {
   process.stdout.write(`freee-agent ${version}\n\n`);
   process.stdout.write("Usage:\n");
   process.stdout.write("  freee-agent auth status\n");
-  process.stdout.write("  freee-agent auth configure --store system|1password|environment [--token-store system|1password] [options] --confirm\n");
-  process.stdout.write("  freee-agent auth migrate-to-system --confirm\n");
+  process.stdout.write("  freee-agent auth configure --store system|environment [options] --confirm\n");
   process.stdout.write("  freee-agent auth client\n");
   process.stdout.write("  freee-agent auth login --confirm\n");
   process.stdout.write("  freee-agent auth refresh\n");
   process.stdout.write("  freee-agent backend status\n");
   process.stdout.write("  freee-agent browser configure [--service NAME] --confirm\n");
-  process.stdout.write("  freee-agent browser migrate-from-1password [--vault NAME] [--item NAME] [--service NAME] --confirm\n");
   process.stdout.write("  freee-agent browser credentials-status [--service NAME]\n");
   process.stdout.write("  freee-agent browser status\n");
   process.stdout.write("  freee-agent me\n");

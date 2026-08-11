@@ -1,55 +1,13 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
 import { CliError } from "./errors.js";
 import { readOAuthConfig } from "./auth-config.js";
 import { FreeeOAuthClient } from "./oauth.js";
 import { RefreshingCredentialProvider } from "./oauth-credentials.js";
 import { createOAuthBackends } from "./secret-store.js";
 
-const execFileAsync = promisify(execFile);
-
 export interface CredentialProvider {
-  readonly source: "environment" | "1password" | "system";
+  readonly source: "environment" | "system";
   getAccessToken(): Promise<string>;
   refreshAccessToken?(): Promise<string>;
-}
-
-type ReadSecret = (executable: string, args: readonly string[]) => Promise<string>;
-
-async function defaultReadSecret(executable: string, args: readonly string[]): Promise<string> {
-  const result = await execFileAsync(executable, [...args], {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024,
-    timeout: 60_000,
-  });
-  return result.stdout;
-}
-
-export class OnePasswordCredentialProvider implements CredentialProvider {
-  readonly source = "1password" as const;
-
-  constructor(
-    private readonly reference: string,
-    private readonly executable = "op",
-    private readonly readSecret: ReadSecret = defaultReadSecret,
-  ) {}
-
-  async getAccessToken(): Promise<string> {
-    try {
-      const token = (await this.readSecret(this.executable, ["read", this.reference])).trim();
-      if (token.length === 0) {
-        throw new Error("empty credential");
-      }
-      return token;
-    } catch {
-      throw new CliError(
-        "CREDENTIAL_UNAVAILABLE",
-        "Could not read the freee Access Token from 1Password. Unlock 1Password, approve any desktop prompt, and ensure `op` is signed in.",
-        { exitCode: 2 },
-      );
-    }
-  }
 }
 
 class EnvironmentCredentialProvider implements CredentialProvider {
@@ -63,7 +21,7 @@ class EnvironmentCredentialProvider implements CredentialProvider {
 }
 
 class MissingCredentialProvider implements CredentialProvider {
-  constructor(readonly source: "1password" | "system") {}
+  readonly source = "system" as const;
 
   async getAccessToken(): Promise<string> {
     throw new CliError(
@@ -82,13 +40,9 @@ export async function createCredentialProvider(
     return new EnvironmentCredentialProvider(environmentToken);
   }
 
-  const fallback = new OnePasswordCredentialProvider(
-    env.FREEE_ACCESS_TOKEN_OP_REF ?? "op://Private/freee/API KEY",
-    env.FREEE_OP_BIN ?? "op",
-  );
   const oauthConfig = await readOAuthConfig(env);
   if (!oauthConfig) {
-    return fallback;
+    return new MissingCredentialProvider();
   }
 
   if (oauthConfig.secretStore === "environment") {
@@ -99,19 +53,15 @@ export async function createCredentialProvider(
     );
   }
 
-  const backends = createOAuthBackends(oauthConfig, env);
-  const configuredFallback =
-    oauthConfig.secretStore === "1password"
-      ? fallback
-      : new MissingCredentialProvider("system");
+  const backends = createOAuthBackends(oauthConfig);
 
   return new RefreshingCredentialProvider(
-    configuredFallback,
+    new MissingCredentialProvider(),
     backends.tokenStore,
     backends.clientCredentials,
     new FreeeOAuthClient(env.FREEE_OAUTH_TOKEN_URL),
     5 * 60 * 1000,
     undefined,
-    oauthConfig.secretStore,
+    "system",
   );
 }

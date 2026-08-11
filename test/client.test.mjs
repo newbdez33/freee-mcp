@@ -52,7 +52,7 @@ test("a 401 refreshes credentials and retries the API request exactly once", asy
   const authorizations = [];
   let refreshCount = 0;
   const credentials = {
-    source: "1password",
+    source: "system",
     async getAccessToken() {
       return "old-access";
     },

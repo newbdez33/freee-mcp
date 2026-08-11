@@ -9,6 +9,7 @@
     "freee-mcp": "dist/mcp-entry.js"
   },
   "scripts": {
+    "prebuild": "node scripts/clean-dist.mjs",
     "build": "tsc -p tsconfig.json",
     "check": "npm run build && node --test",
     "freee": "npm run build --silent && node dist/cli.js",

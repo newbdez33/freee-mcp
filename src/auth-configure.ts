@@ -4,11 +4,9 @@ import {
   writeOAuthConfig,
   type OAuthRuntimeConfig,
   type SecretStoreKind,
-  type TokenStoreKind,
 } from "./auth-config.js";
 import { CliError } from "./errors.js";
 import { SystemCredentialStore } from "./secret-store.js";
-import { OnePasswordOAuthClientCredentialsProvider } from "./token-store.js";
 
 export interface ConfigureAuthInput {
   secretStore: SecretStoreKind;
@@ -16,27 +14,19 @@ export interface ConfigureAuthInput {
   redirectUri: string;
   clientId?: string;
   service?: string;
-  vault?: string;
-  clientItem?: string;
-  tokenItem?: string;
-  tokenStore?: TokenStoreKind;
 }
 
 interface ConfigureAuthDependencies {
   env?: NodeJS.ProcessEnv;
   readClientSecret?: () => Promise<string>;
   createSystemStore?: (clientId: string, service: string) => SystemCredentialStore;
-  createOnePasswordCredentials?: (
-    vault: string,
-    clientItem: string,
-  ) => OnePasswordOAuthClientCredentialsProvider;
   saveConfig?: (config: OAuthRuntimeConfig, env: NodeJS.ProcessEnv) => Promise<void>;
 }
 
 export async function configureAuthentication(
   input: ConfigureAuthInput,
   dependencies: ConfigureAuthDependencies = {},
-): Promise<{ secretStore: SecretStoreKind; tokenStore?: TokenStoreKind; redirectUri: string }> {
+): Promise<{ secretStore: SecretStoreKind; tokenStore?: "system"; redirectUri: string }> {
   if (!input.confirm) {
     throw new CliError(
       "CONFIRMATION_REQUIRED",
@@ -58,8 +48,7 @@ export async function configureAuthentication(
         { exitCode: 2 },
       );
     }
-    const clientSecret = env.FREEE_CLIENT_SECRET?.trim()
-      || await (dependencies.readClientSecret ?? readHiddenClientSecret)();
+    const clientSecret = await (dependencies.readClientSecret ?? readHiddenClientSecret)();
     const service = input.service?.trim() || "freee-agent";
     const store = (dependencies.createSystemStore ?? ((id, name) => new SystemCredentialStore(id, name)))(
       clientId,
@@ -74,28 +63,6 @@ export async function configureAuthentication(
       redirectUri: input.redirectUri,
       clientId,
       service,
-    };
-  } else if (input.secretStore === "1password") {
-    const vault = input.vault?.trim() || "Private";
-    const clientItem = input.clientItem?.trim() || "freee";
-    const tokenStore = input.tokenStore ?? "system";
-    const tokenItem = input.tokenItem?.trim() || "freee OAuth Tokens";
-    const service = input.service?.trim() || "freee-agent";
-    const provider = (
-      dependencies.createOnePasswordCredentials
-      ?? ((configuredVault, configuredItem) =>
-        new OnePasswordOAuthClientCredentialsProvider(configuredVault, configuredItem))
-    )(vault, clientItem);
-    await provider.getCredentials();
-    config = {
-      version: 1,
-      mode: "oauth",
-      secretStore: "1password",
-      tokenStore,
-      redirectUri: input.redirectUri,
-      vault,
-      clientItem,
-      ...(tokenStore === "1password" ? { tokenItem } : { service }),
     };
   } else {
     if (!env.FREEE_ACCESS_TOKEN?.trim()) {
@@ -127,7 +94,7 @@ async function readHiddenClientSecret(): Promise<string> {
   if (!input.isTTY || typeof input.setRawMode !== "function") {
     throw new CliError(
       "CLIENT_SECRET_REQUIRED",
-      "Set FREEE_CLIENT_SECRET for this one configuration command or run it in an interactive terminal.",
+      "Run this command directly in a local interactive terminal to enter the Client Secret securely.",
       { exitCode: 2 },
     );
   }

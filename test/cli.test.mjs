@@ -15,8 +15,7 @@ test("the compiled CLI entry point is runnable without credentials for help", as
   assert.match(result.stdout, /team status/);
   assert.match(result.stdout, /approvals prepare-action/);
   assert.match(result.stdout, /approvals commit-action/);
-  assert.match(result.stdout, /auth migrate-to-system/);
-  assert.match(result.stdout, /browser migrate-from-1password/);
+  assert.doesNotMatch(result.stdout, /migrate/);
   assert.match(result.stdout, /browser configure/);
   assert.match(result.stdout, /browser credentials-status/);
   assert.match(result.stdout, /browser status/);
@@ -91,7 +90,7 @@ test("OAuth login stops before credential-store access when confirm is missing",
   await assert.rejects(
     execFileAsync(process.execPath, ["dist/cli.js", "auth", "login"], {
       encoding: "utf8",
-      env: { ...process.env, FREEE_OP_BIN: "/definitely/not/op" },
+      env: process.env,
     }),
     (error) => {
       assert.equal(error.code, 2);

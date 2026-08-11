@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  EnvironmentOAuthClientCredentialsProvider,
   SystemCredentialStore,
   SystemWebCredentialStore,
 } from "../dist/secret-store.js";
@@ -52,22 +51,6 @@ test("System Credential Store rotates Access and Refresh Tokens as one keyring v
   const serialized = keyring.values.get("freee-test:oauth-tokens");
   assert.equal(typeof serialized, "string");
   assert.equal(JSON.parse(serialized).refreshToken, "refresh");
-});
-
-test("Environment credentials require both OAuth values", async () => {
-  const provider = new EnvironmentOAuthClientCredentialsProvider({
-    FREEE_CLIENT_ID: "client-id",
-    FREEE_CLIENT_SECRET: "client-secret",
-  });
-  assert.deepEqual(await provider.getCredentials(), {
-    clientId: "client-id",
-    clientSecret: "client-secret",
-  });
-
-  await assert.rejects(
-    new EnvironmentOAuthClientCredentialsProvider({ FREEE_CLIENT_ID: "client-id" }).getCredentials(),
-    (error) => error.code === "OAUTH_CLIENT_CREDENTIALS_UNAVAILABLE",
-  );
 });
 
 test("System Web Credential Store saves username and password as one keyring value", async () => {

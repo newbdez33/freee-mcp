@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 
 import { CliError } from "./errors.js";
 
-export type SecretStoreKind = "system" | "1password" | "environment";
-export type TokenStoreKind = "system" | "1password";
+export type SecretStoreKind = "system" | "environment";
+export type TokenStoreKind = "system";
 
 export interface OAuthRuntimeConfig {
   version: 1;
@@ -14,9 +14,6 @@ export interface OAuthRuntimeConfig {
   redirectUri: string;
   clientId?: string;
   service?: string;
-  vault?: string;
-  clientItem?: string;
-  tokenItem?: string;
 }
 
 export function getOAuthConfigPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -66,28 +63,11 @@ function configFromEnvironment(env: NodeJS.ProcessEnv): OAuthRuntimeConfig {
     redirectUri: env.FREEE_OAUTH_REDIRECT_URI ?? "http://127.0.0.1:48181/callback",
     clientId: env.FREEE_CLIENT_ID,
     service: env.FREEE_SYSTEM_KEYRING_SERVICE,
-    vault: env.FREEE_OP_VAULT,
-    clientItem: env.FREEE_OP_CLIENT_ITEM,
-    tokenItem: env.FREEE_OAUTH_TOKEN_ITEM,
     tokenStore: env.FREEE_OAUTH_TOKEN_STORE,
   });
 }
 
 function normalizeConfig(parsed: Record<string, unknown>): OAuthRuntimeConfig {
-  // Migrate the first project-only format, which always used 1Password.
-  if (parsed.mode === "oauth" && typeof parsed.vault === "string" && typeof parsed.tokenItem === "string" && !parsed.secretStore) {
-    return {
-      version: 1,
-      mode: "oauth",
-      secretStore: "1password",
-      tokenStore: "1password",
-      redirectUri: "http://127.0.0.1:48181/callback",
-      vault: parsed.vault,
-      clientItem: "freee",
-      tokenItem: parsed.tokenItem,
-    };
-  }
-
   const secretStore = parseSecretStore(parsed.secretStore);
   const config: OAuthRuntimeConfig = {
     version: 1,
@@ -95,16 +75,13 @@ function normalizeConfig(parsed: Record<string, unknown>): OAuthRuntimeConfig {
     secretStore,
     ...(secretStore === "environment"
       ? {}
-      : { tokenStore: parseTokenStore(parsed.tokenStore, secretStore) }),
+      : { tokenStore: parseTokenStore(parsed.tokenStore) }),
     redirectUri:
       typeof parsed.redirectUri === "string"
         ? parsed.redirectUri
         : "http://127.0.0.1:48181/callback",
     ...(typeof parsed.clientId === "string" ? { clientId: parsed.clientId } : {}),
     ...(typeof parsed.service === "string" ? { service: parsed.service } : {}),
-    ...(typeof parsed.vault === "string" ? { vault: parsed.vault } : {}),
-    ...(typeof parsed.clientItem === "string" ? { clientItem: parsed.clientItem } : {}),
-    ...(typeof parsed.tokenItem === "string" ? { tokenItem: parsed.tokenItem } : {}),
   };
   validateConfig(config);
   return config;
@@ -120,32 +97,18 @@ function validateConfig(config: OAuthRuntimeConfig): void {
   if (config.secretStore === "system" && config.tokenStore !== "system") {
     throw invalidConfigError();
   }
-  if (config.secretStore === "1password") {
-    if (!config.vault || !config.clientItem) {
-      throw invalidConfigError();
-    }
-    if (config.tokenStore === "1password" && !config.tokenItem) {
-      throw invalidConfigError();
-    }
-    if (config.tokenStore === "system" && !config.service) {
-      throw invalidConfigError();
-    }
-  }
 }
 
 function parseSecretStore(value: unknown): SecretStoreKind {
-  if (value === "system" || value === "1password" || value === "environment") {
+  if (value === "system" || value === "environment") {
     return value;
   }
   throw invalidConfigError();
 }
 
-function parseTokenStore(value: unknown, secretStore: Exclude<SecretStoreKind, "environment">): TokenStoreKind {
-  if (value === "system" || value === "1password") {
-    return value;
-  }
-  if (value === undefined) {
-    return secretStore === "system" ? "system" : "1password";
+function parseTokenStore(value: unknown): TokenStoreKind {
+  if (value === "system" || value === undefined) {
+    return "system";
   }
   throw invalidConfigError();
 }

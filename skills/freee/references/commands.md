@@ -18,7 +18,7 @@ Prefer these tools for business operations when the host has loaded the project 
 | Approval/return preview | `freee_approval_prepare_action` | Read-only; returns fingerprint |
 | Approval/return execution | `freee_approval_commit_action` | Real write; exact preview, current-message approval, and `confirm: true` required |
 
-Use `structuredContent.data` on success. Treat `structuredContent.error` as final for the selected execution surface. Do not call a CLI equivalent after an MCP error to bypass permissions, state checks, ambiguity, or confirmation. Authentication configuration and credential migration are intentionally CLI-only.
+Use `structuredContent.data` on success. Treat `structuredContent.error` as final for the selected execution surface. Do not call a CLI equivalent after an MCP error to bypass permissions, state checks, ambiguity, or confirmation. Authentication configuration is intentionally CLI-only.
 
 ## CLI commands
 
@@ -27,7 +27,6 @@ Run every command from the `freee-mcp` repository root:
 ```bash
 npm run freee -- auth status
 npm run freee -- auth client
-npm run freee -- auth migrate-to-system --confirm
 npm run freee -- backend status
 npm run freee -- browser status
 npm run freee -- me
@@ -40,7 +39,7 @@ npm run freee -- clock status --company-id 123
 npm run freee -- clock status --date 2026-08-10
 ```
 
-The identity and status commands above are read-only. `auth migrate-to-system` is a credential write and requires explicit approval.
+The identity and status commands above are read-only.
 
 ## Backend selection
 
@@ -64,14 +63,12 @@ Implemented Playwright credential commands are:
 
 ```bash
 npm run freee -- browser configure --confirm
-npm run freee -- browser migrate-from-1password \
-  --vault Private --item freee --confirm
 npm run freee -- browser credentials-status
 ```
 
 `browser configure` must be run directly by the user in a local interactive terminal. It accepts no username/password options and does not read them from environment variables. It hides the username/email, password, and password-confirmation prompts; writes both values as one System Keychain credential; verifies the readback; and returns only configuration status. Afterward, run `FREEE_BROWSER_HEADLESS=false npm run freee -- browser status` so the user can complete first login, MFA, CAPTCHA, or abnormal-login confirmation in a visible browser.
 
-For 1Password migration, require explicit current-message approval. It reads standard Login username/password fields inside the CLI, writes them as one System Keychain value, verifies the readback, and never deletes the source item. Output includes only migration/configuration status. `browser credentials-status` is read-only and never returns a username or password. Never pass web credentials through chat, `.env`, command arguments, or logs.
+`browser credentials-status` is read-only and never returns a username or password. Never pass web credentials through chat, `.env`, command arguments, or logs.
 
 Playwright read-only commands are:
 
@@ -118,23 +115,7 @@ Authentication setup is a credential write. Prefer the operating system credenti
 npm run freee -- auth configure --store system --client-id YOUR_CLIENT_ID --confirm
 ```
 
-Have the user enter Client Secret in the CLI's hidden prompt; never request it in chat. If the user already has 1Password CLI and the expected fields, use:
-
-```bash
-npm run freee -- auth configure --store 1password \
-  --token-store system --service freee-agent \
-  --vault Private --client-item freee --confirm
-```
-
-System Keyring is the default OAuth Token Store even when Client Secret comes from 1Password. This prevents ordinary API commands from prompting for 1Password. Refresh still needs the Client Secret; users who want no 1Password dependency should configure `--store system` instead. Treat direct 1Password Token storage as legacy compatibility, not the recommended setup.
-
-To migrate an existing 1Password OAuth client credential without printing or manually copying it, require explicit approval and run:
-
-```bash
-npm run freee -- auth migrate-to-system --confirm
-```
-
-The command verifies the Keyring write before changing `.freee/oauth.json`. Existing System Keyring Tokens are preserved without being rewritten; legacy 1Password Tokens are copied and verified when present. The source 1Password item is not deleted. If it returns `OAUTH_CLIENT_CREDENTIALS_UNAVAILABLE`, ask the user to unlock 1Password and allow CLI integration, then retry once.
+Have the user enter Client Secret in the CLI's hidden prompt; never request it in chat. System Keyring is the only persistent OAuth credential store supported for normal users.
 
 For CI or an externally injected short-lived Access Token only:
 
@@ -205,15 +186,15 @@ Errors are emitted on stderr and return a non-zero exit code:
 Important error codes:
 
 - `CREDENTIAL_UNAVAILABLE`: check the configured backend. Never request that the user paste a Token into chat.
-- `SYSTEM_KEYRING_UNAVAILABLE`: ask the user to unlock or enable the operating system credential store; offer 1Password or environment mode if appropriate.
-- `ENVIRONMENT_STORE_READ_ONLY`: use an injected Access Token only, or reconfigure to System Keyring/1Password for OAuth.
+- `SYSTEM_KEYRING_UNAVAILABLE`: ask the user to unlock or enable the operating system credential store. Environment mode is only for an externally injected temporary Access Token.
+- `ENVIRONMENT_STORE_READ_ONLY`: use an injected Access Token only, or reconfigure to System Keyring for OAuth.
 - `FREEE_API_ERROR`: report the HTTP status and safe API message. The CLI already attempts one refresh and one retry for a 401; report the final failure without looping.
-- `OAUTH_CLIENT_CREDENTIALS_UNAVAILABLE`: check the selected backend. For 1Password, verify `client id` and `Client Secret`; for System Keyring, rerun configuration locally.
-- `WEB_CREDENTIALS_UNAVAILABLE`: instruct the user to run `npm run freee -- browser configure --confirm` directly in a local interactive terminal, or explicitly approve 1Password migration. Never request the credentials in chat.
+- `OAUTH_CLIENT_CREDENTIALS_UNAVAILABLE`: rerun System Keyring configuration locally; never request the Client Secret in chat.
+- `WEB_CREDENTIALS_UNAVAILABLE`: instruct the user to run `npm run freee -- browser configure --confirm` directly in a local interactive terminal. Never request the credentials in chat.
 - `INTERACTIVE_TERMINAL_REQUIRED`: the configuration command was launched through a non-interactive Agent process. Stop and have the user run the displayed command themselves in a local terminal.
 - `WEB_CREDENTIAL_CONFIRMATION_MISMATCH`: no credential was saved. Let the user rerun the local command; never ask for either password entry.
-- `INVALID_WEB_CREDENTIAL_STORE`: stop and replace the local System Keychain web credential through a dedicated configuration or migration command.
-- `WEB_CREDENTIAL_VERIFY_FAILED`: stop; the migration did not verify, and success was not reported. The source 1Password item remains unchanged.
+- `INVALID_WEB_CREDENTIAL_STORE`: stop and replace the local System Keychain web credential by rerunning `browser configure --confirm` in a local interactive terminal.
+- `WEB_CREDENTIAL_VERIFY_FAILED`: stop; the System Keychain write did not verify, and success was not reported.
 - `BACKEND_MISMATCH`: the command belongs to the other complete backend; do not fall back. Report the configured backend.
 - `BROWSER_INTERACTION_REQUIRED`: set headless false and retry only while the user is present to complete the official freee interaction.
 - `BROWSER_NAVIGATION_BLOCKED` or `BROWSER_PAGE_AMBIGUOUS`: stop. Do not broaden selectors, allow a new host, or force a click without reviewing the current freee page structure.
@@ -236,7 +217,7 @@ Important error codes:
 
 ## Current scope
 
-Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring/1Password/environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials and 1Password migration; persistent controlled browser login; Playwright monthly department attendance-monitor summaries; and Playwright employee application list/detail plus fingerprint-bound single-item approval/return.
+Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright monthly department attendance-monitor summaries; and Playwright employee application list/detail plus fingerprint-bound single-item approval/return.
 
 Implemented but unavailable to the current API role: API-backed direct department member daily punch status. Do not fall back.
 

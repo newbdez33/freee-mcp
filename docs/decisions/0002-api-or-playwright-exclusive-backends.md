@@ -44,8 +44,7 @@
 
 ## Playwright 凭据与会话
 
-- 已支持 `browser migrate-from-1password --confirm`，由 CLI 在内部读取标准 Login 项目的 username/password，写入并回读验证 System Keychain；源项目不自动删除。
-- 已实现 `browser configure --confirm`，让没有 1Password 的用户在本地交互式终端隐藏输入账号、密码和二次确认，并写入、回读验证同一 System Keychain 条目。
+- 已实现 `browser configure --confirm`，让用户在本地交互式终端隐藏输入账号、密码和二次确认，并写入、回读验证 System Keychain 条目。
 - CLI 不向 Agent 或聊天返回账号、密码、Cookie 或 session storage。
 - 登录 Cookie 和本地存储保存在仓库外、权限受限的专用浏览器 profile。
 - 主页面只允许 `accounts.secure.freee.co.jp`、`p.secure.freee.co.jp` 和 `ep.secure.freee.co.jp`；Employee Portal 新标签页也必须重新验证。

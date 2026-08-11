@@ -9,13 +9,12 @@
 - [x] 先用本地 CLI 验证业务能力，再抽取共享 Core Service 并增加 STDIO MCP Server
 - [x] 同一份 Skill 同时供 Codex 与 Claude Code 使用
 - [x] MCP、CLI 和 Skill 共享同一套后端选择与写操作安全规则
-- [x] OAuth Token 默认统一使用 System Keyring；Client Secret 默认使用 System Keyring、可选从 1Password 读取；仓库内不保存 Secret
+- [x] 普通用户的 Client Secret 与 OAuth Token 只使用 System Keyring；仓库内不保存 Secret
 - [x] 已用现有 Access Token 完成只读连通性验证
 
 ## 第一阶段：安全打卡基础
 
 - [x] 初始化 Node.js / TypeScript CLI 项目
-- [x] 保留从 1Password 读取现有 Access Token 的迁移路径
 - [x] 实现 `auth status`：检查凭据和 API 连通性
 - [x] 实现 `me`：读取当前用户、公司与员工身份
 - [x] 实现 `clock status`：查看当前允许的打卡类型
@@ -24,18 +23,15 @@
 - [x] 增加单元测试，测试中不得调用真实写接口
 - [x] 建立 Codex / Claude Code 共用的 `freee` Skill
 - [x] 完成 Skill 结构校验
-- [x] 在 1Password 桌面授权通过后，用新 CLI 完成 `auth status` 和 `clock status` 只读实测
+- [x] 使用 System Keyring 凭据完成 `auth status` 和 `clock status` 只读实测
 
 ## 第二阶段：OAuth 与日常勤怠
 
 - [x] 实现 `auth configure` 与可插拔凭据接口
 - [x] 实现跨平台 System Keyring 后端（默认）
-- [x] 保留 1Password 后端（可选）
 - [x] 实现 CI / 临时 Access Token 的 environment 后端，并禁止不安全的 Token 轮换
 - [x] 实现 OAuth 本机回调、授权码交换和通用 Token Store
 - [x] 在 freee 开发应用设置 `http://127.0.0.1:48181/callback`，完成一次真实 OAuth 授权
-- [x] 支持 Client Secret 来自 1Password、OAuth Token 写入 System Keyring 的混合模式
-- [x] 支持把 1Password Client Secret 一次性迁移到 System Keyring，并保留现有 OAuth Token
 - [x] Access Token 过期前自动刷新，并原子轮换一次性 Refresh Token
 - [x] 增加跨进程刷新锁，避免 Codex 与 Claude Code 同时消费同一枚 Refresh Token
 - [x] API 返回 401 时刷新并且只重试一次
@@ -49,7 +45,6 @@
 - [x] 实现统一后端选择器并禁止运行中回退
 - [x] 在业务命令 JSON 中输出 `backend: api|playwright`
 - [x] 实现 Playwright System Keychain 凭据库，同时保存 freee 登录账号和密码
-- [x] 实现从标准 1Password Login 项目迁移账号密码并回读验证；不输出凭据、不删除源项目
 - [x] 实现 `browser configure --confirm`，在本地交互式终端隐藏读取账号、密码和二次确认，写入并回读验证 System Keychain
 - [x] MCP 缺少 Playwright 凭据时返回本地配置命令，不允许通过聊天或 MCP 参数提交凭据
 - [x] 引入 Playwright 并建立仓库外、权限受限的持久化浏览器 profile

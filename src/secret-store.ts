@@ -1,10 +1,6 @@
 import type { OAuthRuntimeConfig } from "./auth-config.js";
 import { CliError } from "./errors.js";
 import type { OAuthClientCredentials, StoredOAuthTokens } from "./oauth.js";
-import {
-  OnePasswordOAuthClientCredentialsProvider,
-  OnePasswordOAuthTokenStore,
-} from "./token-store.js";
 
 export interface OAuthClientCredentialsProvider {
   getCredentials(): Promise<OAuthClientCredentials>;
@@ -70,13 +66,12 @@ export class SystemWebCredentialStore implements WebCredentialStore {
     if (!serialized) {
       throw new CliError(
         "WEB_CREDENTIALS_UNAVAILABLE",
-        "freee web credentials are not configured. Run `npm run freee -- browser configure --confirm` directly in a local interactive terminal, or use `browser migrate-from-1password --confirm`.",
+        "freee web credentials are not configured. Run `npm run freee -- browser configure --confirm` directly in a local interactive terminal.",
         {
           details: {
             configured: false,
             credentialStore: "system",
             setupCommand: "npm run freee -- browser configure --confirm",
-            alternativeCommand: "npm run freee -- browser migrate-from-1password --confirm",
           },
           exitCode: 2,
         },
@@ -226,46 +221,13 @@ export class SystemCredentialStore
   }
 }
 
-export class EnvironmentOAuthClientCredentialsProvider
-  implements OAuthClientCredentialsProvider
-{
-  constructor(private readonly env: NodeJS.ProcessEnv = process.env) {}
-
-  async getCredentials(): Promise<OAuthClientCredentials> {
-    const clientId = this.env.FREEE_CLIENT_ID?.trim();
-    const clientSecret = this.env.FREEE_CLIENT_SECRET?.trim();
-    if (!clientId || !clientSecret) {
-      throw new CliError(
-        "OAUTH_CLIENT_CREDENTIALS_UNAVAILABLE",
-        "Set FREEE_CLIENT_ID and FREEE_CLIENT_SECRET in the process environment.",
-        { exitCode: 2 },
-      );
-    }
-    return { clientId, clientSecret };
-  }
-}
-
 export function createOAuthBackends(
   config: OAuthRuntimeConfig,
-  env: NodeJS.ProcessEnv = process.env,
 ): OAuthBackends {
   if (config.secretStore === "system") {
     const store = new SystemCredentialStore(config.clientId ?? "", config.service ?? "freee-agent");
     return { clientCredentials: store, tokenStore: store };
   }
-  if (config.secretStore === "1password") {
-    return {
-      clientCredentials: new OnePasswordOAuthClientCredentialsProvider(
-        config.vault,
-        config.clientItem,
-      ),
-      tokenStore:
-        config.tokenStore === "system"
-          ? new SystemCredentialStore("", config.service ?? "freee-agent")
-          : new OnePasswordOAuthTokenStore(config.vault, config.tokenItem),
-    };
-  }
-
   throw new CliError(
     "ENVIRONMENT_STORE_READ_ONLY",
     "Environment mode accepts an injected Access Token but cannot persist rotating Refresh Tokens.",

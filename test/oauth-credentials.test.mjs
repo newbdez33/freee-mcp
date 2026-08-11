@@ -17,7 +17,7 @@ test("an expiring token is refreshed, persisted, and cached", async () => {
   };
   let refreshCount = 0;
   const provider = new RefreshingCredentialProvider(
-    { source: "1password", async getAccessToken() { return "fallback"; } },
+    { source: "system", async getAccessToken() { return "fallback"; } },
     {
       async read() { return { ...stored }; },
       async write(tokens) { stored = { ...tokens }; },
@@ -78,7 +78,7 @@ test("two processes sharing a lock consume a one-time Refresh Token only once", 
       };
     },
   };
-  const fallback = { source: "1password", async getAccessToken() { return "fallback"; } };
+  const fallback = { source: "system", async getAccessToken() { return "fallback"; } };
   const first = new RefreshingCredentialProvider(fallback, store, credentials, oauth, 0, lockPath);
   const second = new RefreshingCredentialProvider(fallback, store, credentials, oauth, 0, lockPath);
 

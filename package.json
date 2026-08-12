@@ -28,6 +28,8 @@
     "build": "tsc -p tsconfig.json",
     "prepare": "npm run build",
     "check": "npm run build && node --test",
+    "validate": "node scripts/validate-distribution.mjs",
+    "package:smoke": "node scripts/smoke-package.mjs",
     "freee": "npm run build --silent && node dist/cli.js",
     "mcp": "npm run build --silent && node dist/mcp-entry.js",
     "test": "npm run check"

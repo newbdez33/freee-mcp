@@ -100,6 +100,8 @@ For Pi, the equivalent manual update is `pi update`. Portable MCP installations 
 ```bash
 npm ci
 npm test
+npm run validate
+npm run package:smoke
 ```
 
 End users do not use this checkout at runtime. For local plugin development, load the repository explicitly for one Claude Code session:
@@ -111,6 +113,18 @@ claude --plugin-dir /absolute/path/to/freee-mcp
 The repository keeps `.codex/config.toml` for Codex development. The Claude plugin manifest is `.claude-plugin/plugin.json`; its marketplace is `.claude-plugin/marketplace.json`. The plugin resolves its own cached path and persistent data directory, so neither Claude Code nor MCP depends on the user's current working directory.
 
 The Codex configuration uses `default_tools_approval_mode = "writes"`: read-only tools can run directly, while the two commit tools still trigger client approval. Independently of the client prompt, the server validates `confirm: true`, the preview fingerprint, and the current freee state.
+
+### Maintainer release workflow
+
+Every pull request and push to `main` runs tests, validates the Claude plugin and canonical Agent Skill, scans Git history for secrets, and starts the packed CLI and MCP from an isolated npm cache. GitHub Action dependencies are pinned to full commit SHAs.
+
+Releases are explicit and run only from the repository's `main` branch:
+
+1. Update `package.json`, `package-lock.json`, `.claude-plugin/plugin.json`, and the portable `#v...` commands in this README to the same SemVer version.
+2. Merge that version change after CI passes.
+3. In GitHub Actions, run the `Release` workflow from `main` and enter the version without the `v` prefix.
+
+The workflow repeats all validation, creates or verifies an annotated `vVERSION` tag at the current `main` commit, generates English release notes from merged work, and attaches the portable package with its SHA-256 checksum. It never publishes to npm and receives no freee credentials.
 
 ## MCP tools
 

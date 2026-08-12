@@ -10,6 +10,7 @@
 - [x] 同一份 Skill 同时供 Codex 与 Claude Code 使用
 - [x] MCP、CLI 和 Skill 共享同一套后端选择与写操作安全规则
 - [x] 将 Claude Code 发布方式改为用户级插件，同时携带 MCP 与 Skill，不依赖当前项目目录
+- [x] 增加通用可缓存包入口，让 Codex、OpenCode 等 STDIO MCP 客户端及 Pi package 无需手工克隆即可加载同一套工具与 Skill
 - [x] 使用 Claude marketplace/plugin update 更新缓存版本，并把非敏感配置保存在跨版本插件数据目录
 - [x] 普通用户的 Client Secret 与 OAuth Token 只使用 System Keyring；仓库内不保存 Secret
 - [x] 已用现有 Access Token 完成只读连通性验证

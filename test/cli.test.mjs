@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
 test("the compiled CLI entry point is runnable without credentials for help", async () => {
+  const packageJson = JSON.parse(await readFile("package.json", "utf8"));
   const result = await execFileAsync(process.execPath, ["dist/cli.js", "--help"], {
     encoding: "utf8",
   });
 
-  assert.match(result.stdout, /freee-agent 0\.2\.0/);
+  assert.match(result.stdout, new RegExp(`freee-agent ${packageJson.version.replaceAll(".", "\\.")}`));
   assert.match(result.stdout, /clock in\|break-start\|break-end\|out/);
   assert.match(result.stdout, /team status/);
   assert.match(result.stdout, /approvals prepare-action/);

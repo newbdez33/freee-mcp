@@ -17,8 +17,7 @@ import { receiveAuthorizationCode } from "./oauth-login.js";
 import { loadProjectEnvironment } from "./project-env.js";
 import { createOAuthBackends, SystemWebCredentialStore } from "./secret-store.js";
 import { FreeeService } from "./service.js";
-
-const version = "0.2.0";
+import { version } from "./version.js";
 
 async function main(argv: string[]): Promise<void> {
   loadProjectEnvironment();

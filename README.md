@@ -1,16 +1,20 @@
 # freee MCP + CLI + Agent Skill
 
-This project gives Codex and Claude Code safe, testable access to freee HR attendance workflows. Business logic lives in one shared core service, exposed through a local STDIO MCP server, a CLI, and a shared Agent Skill. The core supports two mutually exclusive backends: the freee Public API or controlled Playwright browser automation.
+This project gives Claude Code, Codex, OpenCode, Pi, and other local coding agents safe, testable access to freee HR attendance workflows. Business logic lives in one shared core service, exposed through a local STDIO MCP server, a CLI, and a shared Agent Skill. The core supports two mutually exclusive backends: the freee Public API or controlled Playwright browser automation.
 
-## Install with your AI agent
+## Install with your coding agent
 
-Already use Claude Code? Copy this prompt into it:
+Use Claude Code, Codex, Pi, OpenCode, or another local coding agent? Copy this prompt into it:
 
 ```text
-Install the freee Claude Code plugin from https://github.com/newbdez33/freee-mcp. Follow its README: add its public marketplace, install freee@freee-tools at user scope, reload plugins, and verify that its MCP server and Skill are available. Do not manually clone the repository, copy it into my current project, or add project-scoped MCP configuration. Never ask me to paste a freee username, password, Client Secret, or Token into chat or command arguments. If credentials are missing, show the exact local System Keychain setup command returned by the MCP. Do not perform a real punch or approval action while installing or verifying it.
+Install freee MCP and its Agent Skill from https://github.com/newbdez33/freee-mcp for the coding agent you are currently running. Detect whether this is Claude Code, Codex, Pi, OpenCode, or another agent and follow the matching user-scoped installation path in the README. Prefer the agent's native plugin or package manager; otherwise register the documented portable STDIO MCP command and install skills/freee in the agent's global Skill location. Do not ask me to clone the repository, start the agent from that repository, or add project-scoped configuration. Never ask me to paste a freee username, password, Client Secret, or Token into chat or command arguments. If credentials are missing, show the exact local System Keychain setup command returned by the MCP or companion CLI. Verify only read-only authentication and tool discovery; do not perform a real punch or approval action while installing.
 ```
 
-The marketplace is public. Users do not need a GitHub account or a repository checkout; Claude Code downloads and manages its own internal plugin cache. The equivalent manual installation is:
+The repository is public. Users do not need a GitHub account or a working copy: the selected agent manages the plugin, package, or npm cache internally. The installed tools and Skill are user-scoped and work from any project directory.
+
+### Claude Code
+
+Claude Code installs both MCP and the Skill through the native plugin marketplace:
 
 ```bash
 claude plugin marketplace add https://github.com/newbdez33/freee-mcp.git
@@ -21,7 +25,7 @@ Run `/reload-plugins` in an existing Claude Code session, or start a new session
 
 For first-time Playwright authentication, ask Claude to check freee authentication. If credentials are missing, it returns an installation-specific command. Run that exact command yourself in a local interactive terminal. The command hides the username and password while saving them to System Keychain. MCP installation and approval never receive freee credentials.
 
-### Update an existing installation
+#### Update Claude Code
 
 Updates remain explicit by default so attendance code does not change without the user's knowledge. Copy this prompt into Claude Code when an update is wanted:
 
@@ -40,14 +44,54 @@ Then run `/reload-plugins`. Claude Code switches the MCP and Skill to the new ca
 
 Plugin releases use semantic versions. Maintainers must bump `package.json` and `.claude-plugin/plugin.json` together; the test suite enforces that they match. Users remain on the last installed version until an explicit update succeeds.
 
+### Codex
+
+Codex installs `skills/freee` with its Skill installer and registers this pinned, portable STDIO command at user scope:
+
+```bash
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.3.0' freee-mcp
+```
+
+The opening installation prompt asks Codex to perform both steps. Restart Codex if the newly installed Skill is not discovered immediately, then use `/mcp` to verify the server connection.
+
+### OpenCode and other MCP clients
+
+Register this as a user-level STDIO MCP command using the client's settings or MCP installer:
+
+```bash
+npx --yes --package='github:newbdez33/freee-mcp#v0.3.0' freee-mcp
+```
+
+Install `skills/freee` from this repository in the client's global Agent Skills location. OpenCode recognizes `~/.agents/skills/freee`; other Agent Skills-compatible clients may use a different user-level directory. The opening installation prompt lets the running agent select the correct location without creating project files.
+
+### Pi
+
+Install the repository as a user-level Pi package:
+
+```bash
+pi install git:github.com/newbdez33/freee-mcp
+```
+
+Pi loads the bundled `skills/freee` directory. If the installed Pi environment has no MCP extension, the Skill uses the package's companion CLI, which calls the same core service and enforces the same write confirmations.
+
+### Update an existing installation
+
+Copy this prompt into the agent that owns the installation:
+
+```text
+Update my user-scoped freee installation from https://github.com/newbdez33/freee-mcp using the update mechanism for the coding agent you are currently running. For Claude Code, update freee-tools and freee@freee-tools, then reload plugins. For Codex, OpenCode, or another portable MCP installation, update the pinned GitHub release tag in the MCP command and refresh the global skills/freee installation. For Pi, update the installed Pi package. Preserve ~/.freee-agent, Claude plugin data, System Keychain credentials, and the external Playwright profile. Restart or reload the agent and verify only the read-only MCP connection or CLI status. Do not manually clone the repository and do not perform any real freee punch or approval action.
+```
+
+For Pi, the equivalent manual update is `pi update`. Portable MCP installations deliberately pin a release tag; updating replaces only the code version in the MCP registration and Skill, while credentials and browser state remain outside the package cache.
+
 ## Design decisions
 
 - `FREEE_BACKEND=api|playwright` explicitly selects the backend for every business operation. Only `auto` selects a backend by detecting an existing API configuration.
 - A backend failure is final for that operation. The system never falls back to the other backend.
-- MCP is the primary business-operation interface for Codex and Claude Code, providing tool discovery, input schemas, read-only annotations, and client-side write approval prompts.
+- MCP is the primary business-operation interface for MCP-capable agents, providing tool discovery, input schemas, read-only annotations, and client-side write approval prompts.
 - The CLI remains the deterministic local interface for OAuth setup, System Keychain configuration, and troubleshooting.
 - MCP and CLI call the same `FreeeService`; authentication, business rules, and backend selection are not duplicated.
-- One shared Agent Skill directs Codex and Claude Code to prefer MCP and use the CLI only when MCP is unavailable or local setup is required. An error must never be bypassed by switching interfaces.
+- One shared Agent Skill directs supported agents to prefer MCP and use the CLI only when MCP is unavailable or local setup is required. An error must never be bypassed by switching interfaces.
 - The Playwright backend stores the freee username and password in System Keychain and fills them only on the expected official freee login page.
 - The legacy `freee-checkin` project informed the login flow and selectors, but this project does not reuse its `.env` password, force clicks, environment-variable logging, or unconfirmed scheduled writes.
 
@@ -94,7 +138,7 @@ It is a STDIO protocol process. Under normal use, the client starts it automatic
 
 ## Source-development CLI commands
 
-Installed Claude Code users should use MCP from any directory. When local interactive setup is required, the MCP or installed Skill provides an absolute plugin-resolved command. The `npm run freee --` commands below are for maintainers working in a source checkout.
+Installed users should use MCP from any directory when their agent supports it. When local interactive setup is required, the MCP or installed Skill provides an absolute package-resolved command. The `npm run freee --` commands below are for maintainers working in a source checkout.
 
 ```bash
 # Read-only

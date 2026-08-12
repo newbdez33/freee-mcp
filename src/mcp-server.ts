@@ -4,6 +4,7 @@ import * as z from "zod/v4";
 
 import { toPublicError } from "./errors.js";
 import type { FreeeOperations } from "./service.js";
+import { version } from "./version.js";
 
 export const mcpServerInstructions = [
   "Use read tools when they match the user's request. Never call freee_clock_commit_action or freee_approval_commit_action unless the user's current message explicitly authorizes that exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. A general request to implement, inspect, continue, or handle work is not approval for a real write.",
@@ -31,7 +32,7 @@ const readOnlyAnnotations = {
 
 export function createFreeeMcpServer(service: FreeeOperations): McpServer {
   const server = new McpServer(
-    { name: "freee-agent", version: "0.2.0" },
+    { name: "freee-agent", version },
     { instructions: mcpServerInstructions },
   );
 

@@ -2,6 +2,43 @@
 
 This project gives Codex and Claude Code safe, testable access to freee HR attendance workflows. Business logic lives in one shared core service, exposed through a local STDIO MCP server, a CLI, and a shared Agent Skill. The core supports two mutually exclusive backends: the freee Public API or controlled Playwright browser automation.
 
+## Install with your AI agent
+
+Already use Claude Code? Copy this prompt into it:
+
+```text
+Install freee MCP from https://github.com/newbdez33/freee-mcp into a stable user-owned directory. Follow the repository README. Check that Node.js 22 or newer and Git are available, clone the repository or safely update an existing checkout, run npm ci and npm test, register the built local STDIO server as a user-scoped Claude Code MCP named freee using an absolute path, and install the repository's freee Skill at user scope so it stays connected to the same checkout. Never ask me to paste a freee username, password, Client Secret, or Token into chat or command arguments. If credentials are missing, stop and show me the local interactive System Keychain setup command from the README. Verify the MCP connection with claude mcp list, but do not perform a real punch or approval action.
+```
+
+The repository is currently private, so the user's local Git client must already have access to it. The installer should keep one stable checkout instead of copying build files elsewhere. For Claude Code, the resulting user-scoped MCP command is equivalent to:
+
+```bash
+claude mcp add --transport stdio --scope user \
+  --env FREEE_CONFIG_PATH=/absolute/path/to/freee-mcp/.freee/oauth.json \
+  freee -- node /absolute/path/to/freee-mcp/dist/mcp-entry.js
+```
+
+Use absolute paths for a user-scoped installation. Claude Code can then start freee MCP from any working directory. Run `/mcp` inside Claude Code to inspect the connection. MCP approval only allows the local server to run; freee credentials remain in System Keychain and are never stored in the MCP configuration.
+
+### Update an existing installation
+
+Updates are explicit rather than automatic. This prevents attendance code from changing immediately before a real write. Copy this prompt into Claude Code when an update is wanted:
+
+```text
+Update my existing freee MCP installation from https://github.com/newbdez33/freee-mcp. Locate the checkout referenced by the user-scoped freee MCP, report and stop on unrelated local changes, fast-forward it to the latest origin/main, run npm ci and npm test, verify that the MCP entry path and user-level freee Skill still point to that checkout, and tell me when Claude Code must be restarted. Preserve .env, .freee, System Keychain credentials, and the external Playwright profile. Do not perform any real freee punch or approval action.
+```
+
+The equivalent manual update is:
+
+```bash
+cd /absolute/path/to/freee-mcp
+git pull --ff-only
+npm ci
+npm test
+```
+
+Then quit and reopen Claude Code. Local STDIO MCP processes load the compiled code when they start, so an already running process does not adopt a new build. As long as the checkout path is unchanged, the MCP does not need to be registered again. A normal in-place update preserves System Keychain entries, the external `~/.freee-agent/playwright-profile`, and the ignored local `.env` and `.freee/oauth.json` files. Do not delete and reclone the checkout as an update method.
+
 ## Design decisions
 
 - `FREEE_BACKEND=api|playwright` explicitly selects the backend for every business operation. Only `auto` selects a backend by detecting an existing API configuration.
@@ -13,7 +50,7 @@ This project gives Codex and Claude Code safe, testable access to freee HR atten
 - The Playwright backend stores the freee username and password in System Keychain and fills them only on the expected official freee login page.
 - The legacy `freee-checkin` project informed the login flow and selectors, but this project does not reuse its `.env` password, force clicks, environment-variable logging, or unconfirmed scheduled writes.
 
-## Quick start
+## Development quick start
 
 ```bash
 npm install

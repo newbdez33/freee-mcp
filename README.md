@@ -7,10 +7,10 @@ This project gives Codex and Claude Code safe, testable access to freee HR atten
 Already use Claude Code? Copy this prompt into it:
 
 ```text
-Install the freee Claude Code plugin from the private GitHub repository https://github.com/newbdez33/freee-mcp. Follow its README: add its marketplace, install freee@freee-tools at user scope, reload plugins, and verify that its MCP server and Skill are available. Do not clone it into my current project or add project-scoped MCP configuration. Never ask me to paste a freee username, password, Client Secret, or Token into chat or command arguments. If credentials are missing, show the exact local System Keychain setup command returned by the MCP. Do not perform a real punch or approval action while installing or verifying it.
+Install the freee Claude Code plugin from https://github.com/newbdez33/freee-mcp. Follow its README: add its public marketplace, install freee@freee-tools at user scope, reload plugins, and verify that its MCP server and Skill are available. Do not manually clone the repository, copy it into my current project, or add project-scoped MCP configuration. Never ask me to paste a freee username, password, Client Secret, or Token into chat or command arguments. If credentials are missing, show the exact local System Keychain setup command returned by the MCP. Do not perform a real punch or approval action while installing or verifying it.
 ```
 
-The repository is currently private, so Claude Code must be able to authenticate with GitHub through the user's existing Git credentials. The equivalent manual installation is:
+The marketplace is public. Users do not need a GitHub account or a repository checkout; Claude Code downloads and manages its own internal plugin cache. The equivalent manual installation is:
 
 ```bash
 claude plugin marketplace add https://github.com/newbdez33/freee-mcp.git
@@ -23,10 +23,10 @@ For first-time Playwright authentication, ask Claude to check freee authenticati
 
 ### Update an existing installation
 
-For this private marketplace, explicit updates are the reliable default. Copy this prompt into Claude Code when an update is wanted:
+Updates remain explicit by default so attendance code does not change without the user's knowledge. Copy this prompt into Claude Code when an update is wanted:
 
 ```text
-Update my installed freee@freee-tools Claude Code plugin and its private marketplace, then reload plugins and verify the freee MCP connection. Preserve plugin data, System Keychain credentials, and the external Playwright profile. Do not clone the source repository into my current project and do not perform any real freee punch or approval action.
+Update my installed freee@freee-tools Claude Code plugin and its marketplace, then reload plugins and verify the freee MCP connection. Preserve plugin data, System Keychain credentials, and the external Playwright profile. Do not manually clone the source repository and do not perform any real freee punch or approval action.
 ```
 
 The equivalent manual update is:

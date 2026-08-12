@@ -52,9 +52,9 @@ MCP 与 CLI 不得各自复制业务实现。MCP Server 在初始化时只选择
 
 代价：
 
-- Claude Code 需要添加私有 marketplace 并安装用户级插件；首次缓存插件时会安装锁定的 Node.js 依赖并构建 `dist`。
+- Claude Code 需要添加公开 marketplace 并安装用户级插件；用户无需 GitHub 账号或手工下载源码，首次缓存插件时会自动安装锁定的 Node.js 依赖并构建 `dist`。
 - Playwright MCP 调用仍受网页结构、MFA 和持久 profile 约束。
-- 私有 marketplace 的后台更新可能受 Git 凭据限制，因此默认推荐显式执行 marketplace 与 plugin update。
+- 考勤工具更新默认保持显式，由用户执行 marketplace 与 plugin update 后再重新加载插件，避免代码在未知时刻切换版本。
 
 ## 依据
 

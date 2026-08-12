@@ -7,37 +7,38 @@ This project gives Codex and Claude Code safe, testable access to freee HR atten
 Already use Claude Code? Copy this prompt into it:
 
 ```text
-Install freee MCP from https://github.com/newbdez33/freee-mcp into a stable user-owned directory. Follow the repository README. Check that Node.js 22 or newer and Git are available, clone the repository or safely update an existing checkout, run npm ci and npm test, register the built local STDIO server as a user-scoped Claude Code MCP named freee using an absolute path, and install the repository's freee Skill at user scope so it stays connected to the same checkout. Never ask me to paste a freee username, password, Client Secret, or Token into chat or command arguments. If credentials are missing, stop and show me the local interactive System Keychain setup command from the README. Verify the MCP connection with claude mcp list, but do not perform a real punch or approval action.
+Install the freee Claude Code plugin from the private GitHub repository https://github.com/newbdez33/freee-mcp. Follow its README: add its marketplace, install freee@freee-tools at user scope, reload plugins, and verify that its MCP server and Skill are available. Do not clone it into my current project or add project-scoped MCP configuration. Never ask me to paste a freee username, password, Client Secret, or Token into chat or command arguments. If credentials are missing, show the exact local System Keychain setup command returned by the MCP. Do not perform a real punch or approval action while installing or verifying it.
 ```
 
-The repository is currently private, so the user's local Git client must already have access to it. The installer should keep one stable checkout instead of copying build files elsewhere. For Claude Code, the resulting user-scoped MCP command is equivalent to:
+The repository is currently private, so Claude Code must be able to authenticate with GitHub through the user's existing Git credentials. The equivalent manual installation is:
 
 ```bash
-claude mcp add --transport stdio --scope user \
-  --env FREEE_CONFIG_PATH=/absolute/path/to/freee-mcp/.freee/oauth.json \
-  freee -- node /absolute/path/to/freee-mcp/dist/mcp-entry.js
+claude plugin marketplace add https://github.com/newbdez33/freee-mcp.git
+claude plugin install freee@freee-tools --scope user
 ```
 
-Use absolute paths for a user-scoped installation. Claude Code can then start freee MCP from any working directory. Run `/mcp` inside Claude Code to inspect the connection. MCP approval only allows the local server to run; freee credentials remain in System Keychain and are never stored in the MCP configuration.
+Run `/reload-plugins` in an existing Claude Code session, or start a new session from any directory. The plugin loads both the local STDIO MCP server and the freee Skill at user scope; users never need to open Claude Code from this repository. Run `/mcp` to inspect the connection.
+
+For first-time Playwright authentication, ask Claude to check freee authentication. If credentials are missing, it returns an installation-specific command. Run that exact command yourself in a local interactive terminal. The command hides the username and password while saving them to System Keychain. MCP installation and approval never receive freee credentials.
 
 ### Update an existing installation
 
-Updates are explicit rather than automatic. This prevents attendance code from changing immediately before a real write. Copy this prompt into Claude Code when an update is wanted:
+For this private marketplace, explicit updates are the reliable default. Copy this prompt into Claude Code when an update is wanted:
 
 ```text
-Update my existing freee MCP installation from https://github.com/newbdez33/freee-mcp. Locate the checkout referenced by the user-scoped freee MCP, report and stop on unrelated local changes, fast-forward it to the latest origin/main, run npm ci and npm test, verify that the MCP entry path and user-level freee Skill still point to that checkout, and tell me when Claude Code must be restarted. Preserve .env, .freee, System Keychain credentials, and the external Playwright profile. Do not perform any real freee punch or approval action.
+Update my installed freee@freee-tools Claude Code plugin and its private marketplace, then reload plugins and verify the freee MCP connection. Preserve plugin data, System Keychain credentials, and the external Playwright profile. Do not clone the source repository into my current project and do not perform any real freee punch or approval action.
 ```
 
 The equivalent manual update is:
 
 ```bash
-cd /absolute/path/to/freee-mcp
-git pull --ff-only
-npm ci
-npm test
+claude plugin marketplace update freee-tools
+claude plugin update freee@freee-tools --scope user
 ```
 
-Then quit and reopen Claude Code. Local STDIO MCP processes load the compiled code when they start, so an already running process does not adopt a new build. As long as the checkout path is unchanged, the MCP does not need to be registered again. A normal in-place update preserves System Keychain entries, the external `~/.freee-agent/playwright-profile`, and the ignored local `.env` and `.freee/oauth.json` files. Do not delete and reclone the checkout as an update method.
+Then run `/reload-plugins`. Claude Code switches the MCP and Skill to the new cached plugin version without requiring a repository checkout or a new MCP registration. System Keychain entries, persistent plugin data, and the external `~/.freee-agent/playwright-profile` survive normal plugin updates.
+
+Plugin releases use semantic versions. Maintainers must bump `package.json` and `.claude-plugin/plugin.json` together; the test suite enforces that they match. Users remain on the last installed version until an explicit update succeeds.
 
 ## Design decisions
 
@@ -53,17 +54,17 @@ Then quit and reopen Claude Code. Local STDIO MCP processes load the compiled co
 ## Development quick start
 
 ```bash
-npm install
-npm run build
+npm ci
 npm test
 ```
 
-The repository includes project-level MCP configurations for both clients:
+End users do not use this checkout at runtime. For local plugin development, load the repository explicitly for one Claude Code session:
 
-- Codex: `.codex/config.toml`
-- Claude Code: `.mcp.json`
+```bash
+claude --plugin-dir /absolute/path/to/freee-mcp
+```
 
-Both configurations start the local STDIO server with `node dist/mcp-entry.js`. Build the project before first use and open Codex or Claude Code from the repository root. Codex loads the project configuration when the task is reopened. Claude Code asks the user to approve the project server when it first discovers `.mcp.json`.
+The repository keeps `.codex/config.toml` for Codex development. The Claude plugin manifest is `.claude-plugin/plugin.json`; its marketplace is `.claude-plugin/marketplace.json`. The plugin resolves its own cached path and persistent data directory, so neither Claude Code nor MCP depends on the user's current working directory.
 
 The Codex configuration uses `default_tools_approval_mode = "writes"`: read-only tools can run directly, while the two commit tools still trigger client approval. Independently of the client prompt, the server validates `confirm: true`, the preview fingerprint, and the current freee state.
 
@@ -91,7 +92,9 @@ npm run mcp
 
 It is a STDIO protocol process. Under normal use, the client starts it automatically; no separate terminal window needs to remain open.
 
-## CLI commands
+## Source-development CLI commands
+
+Installed Claude Code users should use MCP from any directory. When local interactive setup is required, the MCP or installed Skill provides an absolute plugin-resolved command. The `npm run freee --` commands below are for maintainers working in a source checkout.
 
 ```bash
 # Read-only
@@ -148,7 +151,7 @@ The backend is selected once using this priority and is never mixed during an op
 2. `FREEE_BACKEND=playwright`: use only Playwright, even if an API configuration still exists locally.
 3. Unset or `FREEE_BACKEND=auto`: select API when an API configuration exists; otherwise select Playwright.
 
-The current local `.env` selects:
+A source-development checkout can select:
 
 ```dotenv
 FREEE_BACKEND=playwright
@@ -164,7 +167,9 @@ The CLI supports two credential modes:
 - `system`: the normal and recommended mode. Client Secret and OAuth Tokens use macOS Keychain, Windows Credential Manager, or the Linux system keyring.
 - `environment`: intended for CI, servers, or a temporary Access Token. It cannot rotate a Refresh Token automatically.
 
-Ordinary configuration lives in `.freee/oauth.json`, which contains only the Client ID, callback address, and backend metadata. It never contains a Client Secret or Token.
+Configuration contains only the Client ID, callback address, and backend metadata; it never contains a Client Secret or Token. A source checkout uses `.freee/oauth.json`, while the Claude plugin keeps the same data in its persistent plugin data directory.
+
+For an installed Claude plugin, ask Claude to configure the API backend. The installed Skill supplies a plugin-resolved CLI command and stores this non-secret configuration in persistent plugin data. The source-checkout commands below are for development.
 
 ### System Keyring (recommended)
 
@@ -204,11 +209,11 @@ npm run freee -- auth status
 
 After authorization, the CLI refreshes an Access Token before it expires. A 401 response also triggers at most one refresh and one retry. Every freee Refresh Token is single-use, so each refresh stores the new Access Token and Refresh Token together. A cross-process lock prevents Codex and Claude Code from consuming the same Refresh Token concurrently.
 
-The local `.freee/oauth.json` contains no Token or Secret and is ignored by Git.
+The source-checkout `.freee/oauth.json` contains no Token or Secret and is ignored by Git. The plugin equivalent lives in persistent plugin data and survives normal plugin updates.
 
 ## Playwright credentials
 
-Run this directly in a local interactive terminal:
+With the installed plugin, ask Claude to check freee authentication, then run the exact `setupCommand` it returns directly in a local interactive terminal. For source development, the equivalent command is:
 
 ```bash
 npm run freee -- browser configure --confirm
@@ -216,7 +221,7 @@ npm run freee -- browser configure --confirm
 
 The command reads the username, password, and password confirmation through hidden prompts, writes them to System Keychain, and verifies the readback. Its output contains no credential values. Username and password options are not accepted, and credentials are never read from `.env`, MCP arguments, or chat.
 
-Complete the first login in a visible browser:
+Complete the first login using the exact `nextStep` returned by the configuration command. In a source checkout, the equivalent command is:
 
 ```bash
 FREEE_BROWSER_HEADLESS=false npm run freee -- browser status
@@ -233,7 +238,7 @@ The persistent browser profile defaults to `~/.freee-agent/playwright-profile` a
 The canonical Skill lives at `skills/freee`:
 
 - Codex: `.agents/skills/freee` links to the canonical Skill.
-- Claude Code: `.claude/skills/freee` links to the same Skill.
+- Claude Code: the user-level `freee@freee-tools` plugin loads the canonical Skill automatically in every project; `.claude/skills/freee` remains only for source development.
 
 Both clients therefore share the same MCP mappings, CLI setup guidance, and safety rules. Business operations prefer MCP; authentication setup and MCP troubleshooting continue to use the CLI.
 

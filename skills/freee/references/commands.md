@@ -2,7 +2,7 @@
 
 ## MCP tools
 
-Prefer these tools for business operations when the host has loaded the project MCP Server:
+Prefer these tools for business operations when the host has loaded the installed MCP Server:
 
 | Purpose | Tool | Write behavior |
 | --- | --- | --- |
@@ -18,11 +18,18 @@ Prefer these tools for business operations when the host has loaded the project 
 | Approval/return preview | `freee_approval_prepare_action` | Read-only; returns fingerprint |
 | Approval/return execution | `freee_approval_commit_action` | Real write; exact preview, current-message approval, and `confirm: true` required |
 
-Use `structuredContent.data` on success. Treat `structuredContent.error` as final for the selected execution surface. Do not call a CLI equivalent after an MCP error to bypass permissions, state checks, ambiguity, or confirmation. Authentication configuration is intentionally CLI-only.
+Use `structuredContent.data` on success. Treat `structuredContent.error` as final for the selected execution surface. Do not call a CLI equivalent after an MCP error to bypass permissions, state checks, ambiguity, or confirmation. Authentication configuration is intentionally local and interactive. In a Claude plugin installation, never assume a repository working directory: use the exact `setupCommand` returned by MCP or the plugin-resolved CLI form below.
 
 ## CLI commands
 
-Run every command from the `freee-mcp` repository root:
+Claude plugin CLI prefix:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/plugin-cli.mjs" \
+  --plugin-data "${CLAUDE_PLUGIN_DATA}"
+```
+
+Claude Code resolves the placeholders above when this Skill is installed through the plugin. Normal business operations should remain on MCP. The following `npm run freee --` examples are a source-development fallback and must be run from the `freee-mcp` repository root:
 
 ```bash
 npm run freee -- auth status
@@ -66,7 +73,7 @@ npm run freee -- browser configure --confirm
 npm run freee -- browser credentials-status
 ```
 
-`browser configure` must be run directly by the user in a local interactive terminal. It accepts no username/password options and does not read them from environment variables. It hides the username/email, password, and password-confirmation prompts; writes both values as one System Keychain credential; verifies the readback; and returns only configuration status. Afterward, run `FREEE_BROWSER_HEADLESS=false npm run freee -- browser status` so the user can complete first login, MFA, CAPTCHA, or abnormal-login confirmation in a visible browser.
+`browser configure` must be run directly by the user in a local interactive terminal. For a plugin installation, call `freee_auth_status` and show its exact `setupCommand`; do not rewrite it as a repository-relative command. It accepts no username/password options and does not read them from environment variables. It hides the username/email, password, and password-confirmation prompts; writes both values as one System Keychain credential; verifies the readback; and returns only configuration status. Show the returned `nextStep` so the user can complete first login, MFA, CAPTCHA, or abnormal-login confirmation in a visible browser.
 
 `browser credentials-status` is read-only and never returns a username or password. Never pass web credentials through chat, `.env`, command arguments, or logs.
 
@@ -190,7 +197,7 @@ Important error codes:
 - `ENVIRONMENT_STORE_READ_ONLY`: use an injected Access Token only, or reconfigure to System Keyring for OAuth.
 - `FREEE_API_ERROR`: report the HTTP status and safe API message. The CLI already attempts one refresh and one retry for a 401; report the final failure without looping.
 - `OAUTH_CLIENT_CREDENTIALS_UNAVAILABLE`: rerun System Keyring configuration locally; never request the Client Secret in chat.
-- `WEB_CREDENTIALS_UNAVAILABLE`: instruct the user to run `npm run freee -- browser configure --confirm` directly in a local interactive terminal. Never request the credentials in chat.
+- `WEB_CREDENTIALS_UNAVAILABLE`: show the exact returned `setupCommand` and instruct the user to run it directly in a local interactive terminal. Never request the credentials in chat and never substitute a repository-relative command in a plugin installation.
 - `INTERACTIVE_TERMINAL_REQUIRED`: the configuration command was launched through a non-interactive Agent process. Stop and have the user run the displayed command themselves in a local terminal.
 - `WEB_CREDENTIAL_CONFIRMATION_MISMATCH`: no credential was saved. Let the user rerun the local command; never ask for either password entry.
 - `INVALID_WEB_CREDENTIAL_STORE`: stop and replace the local System Keychain web credential by rerunning `browser configure --confirm` in a local interactive terminal.

@@ -15,7 +15,7 @@ CLI 已验证 OAuth、System Keychain、个人打卡、Playwright 部门勤怠�
 采用四层结构：
 
 1. `FreeeService`：统一认证、独占后端选择、查询、预览、状态复核和写操作。
-2. CLI：人工操作、认证配置、凭据迁移和兼容入口。
+2. CLI：人工操作、认证配置和兼容入口。
 3. 本地 STDIO MCP Server：向 Codex 和 Claude Code 公开结构化业务工具。
 4. Agent Skill：说明工具选择、审批流程、安全边界和 CLI 初始化方法。
 
@@ -32,14 +32,14 @@ MCP 与 CLI 不得各自复制业务实现。MCP Server 在初始化时只选择
 - 客户端工具审批是附加保护，不替代 Core 的确认与指纹复核。
 - 测试、实现、“继续”或一般性的“处理申请”请求不得触发真实写入；未知结果不得自动重试。
 
-认证配置和凭据迁移暂不暴露为 MCP 工具。这些操作需要本地隐藏输入或特殊授权，继续由 CLI 在用户明确同意后完成。MCP 只能读取安全的认证状态，不返回账号、密码、Token、Client Secret、Cookie 或 profile。
+认证配置暂不暴露为 MCP 写工具。这些操作需要本地隐藏输入或特殊授权，继续由 CLI 在用户明确同意后完成。MCP 只能读取安全的认证状态并返回安装路径对应的安全配置命令，不返回账号、密码、Token、Client Secret、Cookie 或 profile。
 
 ## 客户端配置
 
 - Codex 使用项目级 `.codex/config.toml`，并把非只读工具设为需要审批。
-- Claude Code 使用项目级 `.mcp.json`，由用户首次批准该项目 Server。
-- 两者都通过 `node dist/mcp-entry.js` 启动同一个本地 STDIO Server。
-- 配置文件不包含凭据；Server 从 System Keychain 和项目的非敏感 `.env` 读取运行配置。
+- Claude Code 通过用户级 `freee@freee-tools` 插件同时加载 MCP Server 和 Skill，不依赖当前项目目录；源码仓库仅用于开发。
+- Codex 直接启动 `node dist/mcp-entry.js`；Claude 插件使用 `${CLAUDE_PLUGIN_ROOT}` 启动同一个本地 STDIO Server，并把非敏感 OAuth 配置放在可跨版本保留的 `${CLAUDE_PLUGIN_DATA}`。
+- 配置文件不包含凭据；Server 从 System Keychain 和非敏感运行配置读取状态。
 
 ## 结果
 
@@ -52,9 +52,9 @@ MCP 与 CLI 不得各自复制业务实现。MCP Server 在初始化时只选择
 
 代价：
 
-- 客户端需要安装依赖、构建 `dist` 并批准项目 MCP 配置。
+- Claude Code 需要添加私有 marketplace 并安装用户级插件；首次缓存插件时会安装锁定的 Node.js 依赖并构建 `dist`。
 - Playwright MCP 调用仍受网页结构、MFA 和持久 profile 约束。
-- 未发布 npm 包前，项目配置依赖从仓库根目录启动客户端。
+- 私有 marketplace 的后台更新可能受 Git 凭据限制，因此默认推荐显式执行 marketplace 与 plugin update。
 
 ## 依据
 

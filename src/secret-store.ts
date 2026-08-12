@@ -1,6 +1,7 @@
 import type { OAuthRuntimeConfig } from "./auth-config.js";
 import { CliError } from "./errors.js";
 import type { OAuthClientCredentials, StoredOAuthTokens } from "./oauth.js";
+import { browserCredentialSetupCommand } from "./setup-guidance.js";
 
 export interface OAuthClientCredentialsProvider {
   getCredentials(): Promise<OAuthClientCredentials>;
@@ -64,14 +65,17 @@ export class SystemWebCredentialStore implements WebCredentialStore {
       );
     }
     if (!serialized) {
+      const setup = browserCredentialSetupCommand();
       throw new CliError(
         "WEB_CREDENTIALS_UNAVAILABLE",
-        "freee web credentials are not configured. Run `npm run freee -- browser configure --confirm` directly in a local interactive terminal.",
+        `freee web credentials are not configured. Run \`${setup.command}\` directly in a local interactive terminal.`,
         {
           details: {
             configured: false,
             credentialStore: "system",
-            setupCommand: "npm run freee -- browser configure --confirm",
+            setupCommand: setup.command,
+            setupExecutable: setup.executable,
+            setupArguments: setup.arguments,
           },
           exitCode: 2,
         },

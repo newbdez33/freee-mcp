@@ -66,7 +66,7 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
       "freee_approval_commit_action",
     ]);
     assert.match(client.getInstructions(), /Always prepare first/);
-    assert.match(client.getInstructions(), /browser configure --confirm/);
+    assert.match(client.getInstructions(), /setupCommand/);
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_team_status").annotations.readOnlyHint,
       true,

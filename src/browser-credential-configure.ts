@@ -6,6 +6,7 @@ import {
   type FreeeWebCredentials,
   type WebCredentialStore,
 } from "./secret-store.js";
+import { visibleBrowserLoginCommand } from "./setup-guidance.js";
 
 interface BrowserCredentialConfigurationOptions {
   confirm: boolean;
@@ -66,7 +67,7 @@ export async function configureBrowserCredentials(
     configured: true,
     credentialStore: "system",
     service,
-    nextStep: "Run `FREEE_BROWSER_HEADLESS=false npm run freee -- browser status` locally to complete freee login or MFA in a visible browser.",
+    nextStep: `Run \`${visibleBrowserLoginCommand().command}\` locally to complete freee login or MFA in a visible browser.`,
   };
 }
 

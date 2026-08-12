@@ -9,6 +9,8 @@
 - [x] 先用本地 CLI 验证业务能力，再抽取共享 Core Service 并增加 STDIO MCP Server
 - [x] 同一份 Skill 同时供 Codex 与 Claude Code 使用
 - [x] MCP、CLI 和 Skill 共享同一套后端选择与写操作安全规则
+- [x] 将 Claude Code 发布方式改为用户级插件，同时携带 MCP 与 Skill，不依赖当前项目目录
+- [x] 使用 Claude marketplace/plugin update 更新缓存版本，并把非敏感配置保存在跨版本插件数据目录
 - [x] 普通用户的 Client Secret 与 OAuth Token 只使用 System Keyring；仓库内不保存 Secret
 - [x] 已用现有 Access Token 完成只读连通性验证
 
@@ -71,10 +73,10 @@
 - [x] commit 工具同时要求客户端审批、`confirm: true` 和服务端状态复核
 - [x] 增加 MCP 内存协议测试；测试中不调用真实写操作
 - [x] 使用真实 System Keychain + Playwright 完成 STDIO 工具发现和个人状态只读验证
-- [x] 增加 Codex `.codex/config.toml` 与 Claude Code `.mcp.json` 项目配置
+- [x] 增加 Codex `.codex/config.toml` 开发配置与 Claude Code 用户级 plugin/marketplace 清单
 - [x] 更新共用 Skill，业务操作优先使用 MCP，CLI 保留初始化和故障处理职责
 - [ ] 增加 MCP 服务器并发会话、超时和取消的压力测试
-- [ ] 发布可安装包后，把项目配置从相对 `dist` 路径升级为稳定的包命令
+- [x] Claude 插件通过 `${CLAUDE_PLUGIN_ROOT}` 与 `${CLAUDE_PLUGIN_DATA}` 稳定解析运行代码和跨版本配置
 
 ## 后续可选项
 

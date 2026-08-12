@@ -1,0 +1,22 @@
+{
+  "name": "freee",
+  "version": "0.2.0",
+  "description": "Safely operate freee HR attendance through a local MCP server and companion Skill.",
+  "author": {
+    "name": "newbdez33"
+  },
+  "homepage": "https://github.com/newbdez33/freee-mcp",
+  "repository": "https://github.com/newbdez33/freee-mcp",
+  "keywords": ["freee", "attendance", "mcp", "playwright"],
+  "mcpServers": {
+    "freee": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/plugin-mcp.mjs"],
+      "env": {
+        "FREEE_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}",
+        "FREEE_PLUGIN_DATA": "${CLAUDE_PLUGIN_DATA}"
+      }
+    }
+  }
+}

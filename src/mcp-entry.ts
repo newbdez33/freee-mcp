@@ -11,6 +11,7 @@ import { FreeeService } from "./service.js";
 
 async function main(): Promise<void> {
   const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  process.chdir(projectRoot);
   loadProjectEnvironment(projectRoot);
   const service = await FreeeService.create();
   const server = createFreeeMcpServer(service);

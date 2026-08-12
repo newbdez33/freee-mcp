@@ -1,0 +1,17 @@
+{
+  "name": "freee-tools",
+  "description": "Local freee attendance tools for Claude Code.",
+  "owner": {
+    "name": "newbdez33",
+    "url": "https://github.com/newbdez33"
+  },
+  "plugins": [
+    {
+      "name": "freee",
+      "source": ".",
+      "description": "Safely operate freee HR attendance through a local MCP server and companion Skill.",
+      "category": "productivity",
+      "tags": ["freee", "attendance", "mcp"]
+    }
+  ]
+}

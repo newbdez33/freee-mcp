@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "freee": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["dist/mcp-entry.js"]
-    }
-  }
-}

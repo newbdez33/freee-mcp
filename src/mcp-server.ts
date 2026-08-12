@@ -7,7 +7,7 @@ import type { FreeeOperations } from "./service.js";
 
 export const mcpServerInstructions = [
   "Use read tools when they match the user's request. Never call freee_clock_commit_action or freee_approval_commit_action unless the user's current message explicitly authorizes that exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. A general request to implement, inspect, continue, or handle work is not approval for a real write.",
-  "The selected API or Playwright backend is exclusive for each server process; never fall back. Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, instruct the user to run `npm run freee -- browser configure --confirm` directly in a local interactive terminal; never accept credentials in chat or MCP arguments. If a preview changes or a result is unknown, stop and read status/detail before considering another write. Do not retry a write automatically.",
+  "The selected API or Playwright backend is exclusive for each server process; never fall back. Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, show the exact setupCommand returned in the error and instruct the user to run it directly in a local interactive terminal; never accept credentials in chat or MCP arguments. If a preview changes or a result is unknown, stop and read status/detail before considering another write. Do not retry a write automatically.",
 ].join(" ");
 
 const companyIdSchema = z.number().int().positive().optional()

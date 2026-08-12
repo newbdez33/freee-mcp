@@ -2,6 +2,7 @@
   "name": "freee",
   "version": "0.2.0",
   "description": "Safely operate freee HR attendance through a local MCP server and companion Skill.",
+  "license": "MIT",
   "author": {
     "name": "newbdez33"
   },

@@ -249,3 +249,7 @@ Both clients therefore share the same MCP mappings, CLI setup guidance, and safe
 - [ADR-0003: Local MCP adapter](docs/decisions/0003-local-mcp-adapter.md)
 - [freee HR API capability inventory](docs/freee-hr-api-capabilities.md)
 - [Development backlog](TODO.md)
+
+## License
+
+This project is available under the [MIT License](LICENSE).

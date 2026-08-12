@@ -2,6 +2,7 @@
   "name": "freee-agent-cli",
   "version": "0.2.0",
   "private": true,
+  "license": "MIT",
   "description": "A safety-first freee attendance MCP server and CLI for coding agents",
   "type": "module",
   "bin": {

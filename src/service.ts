@@ -71,6 +71,13 @@ export interface FreeeOperations {
     fingerprint: string,
     confirm: boolean,
   ): Promise<Record<string, unknown>>;
+  preparePersonalApplicationCancel(id: string, reason?: string): Promise<Record<string, unknown>>;
+  commitPersonalApplicationCancel(
+    id: string,
+    reason: string | undefined,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<Record<string, unknown>>;
   preparePersonalApplicationWithdraw(id: string): Promise<Record<string, unknown>>;
   commitPersonalApplicationWithdraw(
     id: string,
@@ -389,6 +396,41 @@ export class FreeeService implements FreeeOperations {
       backend: this.backend,
       ...asRecord(await this.withBrowser(
         (client) => client.preparePersonalApplicationWithdraw(id),
+      )),
+    };
+  }
+
+  async preparePersonalApplicationCancel(
+    id: string,
+    reason?: string,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Personal application workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser(
+        (client) => client.preparePersonalApplicationCancel(id, reason),
+      )),
+    };
+  }
+
+  async commitPersonalApplicationCancel(
+    id: string,
+    reason: string | undefined,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Personal application workflow");
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This tool creates a real cancellation application for an approved personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser(
+        (client) => client.commitPersonalApplicationCancel(id, reason, fingerprint, confirm),
       )),
     };
   }

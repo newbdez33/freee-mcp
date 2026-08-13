@@ -503,6 +503,66 @@ test("Playwright approval detail waits for the route to render after a row click
   assert.equal(waitedForNetworkIdle, true);
 });
 
+test("Playwright approval detail fingerprints only a settled async snapshot", async () => {
+  const { client } = createFakeBrowser([]);
+  const partial = { fields: [], tables: [], detailLines: ["申請内容"] };
+  const complete = {
+    fields: [],
+    tables: [{ headers: ["項目名", "内容"], rows: [["申請経路", "勤怠申請"]] }],
+    detailLines: ["申請内容", "自動でチェックしました。特に問題ないように見えます。"],
+  };
+  const snapshots = [partial, complete, complete];
+  let snapshotReads = 0;
+  let waits = 0;
+  client.readApprovalDetailSnapshot = async () => {
+    snapshotReads += 1;
+    return snapshots.shift() ?? complete;
+  };
+  client.page.waitForTimeout = async (milliseconds) => {
+    assert.equal(milliseconds, 200);
+    waits += 1;
+  };
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+  });
+
+  const result = await client.readApprovalDetail({
+    id: "10039",
+    status: "未承認",
+    applicant: "申請者 A",
+    type: "休暇取消",
+    targetDate: "2026/08/14",
+    content: "有休 半休",
+    reason: null,
+    appliedAt: "2026/08/14",
+    currentApprover: "承認者 A",
+    checkResult: null,
+  });
+
+  assert.deepEqual(result.tables, complete.tables);
+  assert.deepEqual(result.detailLines, complete.detailLines);
+  assert.equal(snapshotReads, 3);
+  assert.equal(waits, 2);
+});
+
+test("Playwright approval detail stops when its async snapshot never settles", async () => {
+  const { client } = createFakeBrowser([]);
+  let snapshotReads = 0;
+  client.readApprovalDetailSnapshot = async () => ({
+    fields: [],
+    tables: [],
+    detailLines: [`render-${snapshotReads += 1}`],
+  });
+
+  await assert.rejects(
+    client.readStableApprovalDetailSnapshot(),
+    (error) => error.code === "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+  );
+  assert.equal(snapshotReads, 11);
+});
+
 test("Playwright personal application list uses the employee returned-state filter", async () => {
   const { client, state } = createFakePersonalApplicationBrowser();
   const result = await client.getPersonalApplications("returned", 1);
@@ -696,6 +756,10 @@ test("Playwright personal application commits never click without explicit confi
     client.commitPersonalApplicationWithdraw("100", "b".repeat(64), false),
     (error) => error.code === "CONFIRMATION_REQUIRED",
   );
+  await assert.rejects(
+    client.commitPersonalApplicationCancel("100", "计划变更", "c".repeat(64), false),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
   assert.deepEqual(state.clicks, []);
 });
 
@@ -854,6 +918,85 @@ test("Playwright personal application withdrawal verifies the exact returned ite
   assert.equal(clicks, 1);
   assert.equal(result.verified, true);
   assert.equal(result.result.application.status, "差戻し");
+});
+
+test("Playwright personal application cancellation creates and verifies one new request", async () => {
+  const { client } = createFakeBrowser([]);
+  let clicks = 0;
+  let currentDetailReads = 0;
+  const fingerprint = "f".repeat(64);
+  client.preparePersonalApplicationCancel = async () => {
+    client.preparedPersonalApplicationFirstPageIds = ["10034"];
+    return {
+      id: "10034",
+      action: "cancel",
+      fingerprint,
+      preview: {
+        original: { application: { id: "10034", status: "承認済" } },
+        reason: "计划变更",
+        route: "勤怠申請",
+        existingFirstPage: { count: 1, fingerprint: "a".repeat(64) },
+      },
+    };
+  };
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { clicks += 1; },
+  });
+  client.readCurrentPersonalApplicationDetailSnapshot = async () => {
+    currentDetailReads += 1;
+    return {
+      applicationId: "10036",
+      fields: [{ label: "元申請No", value: "10034" }],
+      tables: [],
+      detailLines: ["取消申請"],
+      availableActions: ["withdraw"],
+    };
+  };
+  client.getPersonalApplications = async () => ({
+    applications: [
+      { id: "10036", status: "申請中", type: "取消" },
+      { id: "10034", status: "承認済", type: "休暇" },
+    ],
+  });
+
+  const result = await client.commitPersonalApplicationCancel(
+    "10034",
+    "计划变更",
+    fingerprint,
+    true,
+  );
+  assert.equal(clicks, 1);
+  assert.equal(currentDetailReads, 1);
+  assert.equal(result.id, "10034");
+  assert.equal(result.action, "cancel");
+  assert.equal(result.verified, true);
+  assert.equal(result.result.application.id, "10036");
+});
+
+test("Playwright personal application cancellation stops when the preview changes", async () => {
+  const { client } = createFakeBrowser([]);
+  let clicks = 0;
+  client.preparePersonalApplicationCancel = async () => ({
+    id: "10034",
+    action: "cancel",
+    fingerprint: "1".repeat(64),
+    preview: {},
+  });
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { clicks += 1; },
+  });
+
+  await assert.rejects(
+    client.commitPersonalApplicationCancel("10034", "计划变更", "2".repeat(64), true),
+    (error) => error.code === "PERSONAL_APPLICATION_PREVIEW_CHANGED",
+  );
+  assert.equal(clicks, 0);
 });
 
 test("Playwright monthly commit binds the preview and verifies the changed state", async () => {

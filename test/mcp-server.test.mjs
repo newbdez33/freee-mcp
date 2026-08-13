@@ -52,6 +52,14 @@ function createFakeService() {
       calls.push(["requests-commit-create", input, fingerprint, confirm]);
       return { backend: "playwright", action: "create", verified: true };
     },
+    async preparePersonalApplicationCancel(id, reason) {
+      calls.push(["requests-prepare-cancel", id, reason]);
+      return { backend: "playwright", id, action: "cancel", fingerprint: "f".repeat(64) };
+    },
+    async commitPersonalApplicationCancel(id, reason, fingerprint, confirm) {
+      calls.push(["requests-commit-cancel", id, reason, fingerprint, confirm]);
+      return { backend: "playwright", id, action: "cancel", verified: true };
+    },
     async preparePersonalApplicationWithdraw(id) {
       return { backend: "playwright", id, action: "withdraw", fingerprint: "e".repeat(64) };
     },
@@ -105,6 +113,8 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
       "freee_personal_application_detail",
       "freee_personal_application_prepare_create",
       "freee_personal_application_commit_create",
+      "freee_personal_application_prepare_cancel",
+      "freee_personal_application_commit_cancel",
       "freee_personal_application_prepare_withdraw",
       "freee_personal_application_commit_withdraw",
       "freee_approvals_list",
@@ -129,6 +139,10 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_personal_application_commit_create").annotations.destructiveHint,
       false,
+    );
+    assert.equal(
+      listed.tools.find((tool) => tool.name === "freee_personal_application_commit_cancel").annotations.destructiveHint,
+      true,
     );
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_personal_application_commit_withdraw").annotations.destructiveHint,
@@ -186,6 +200,11 @@ test("MCP tools return safe structured envelopes and default the approval filter
       },
     });
     assert.equal(halfDay.structuredContent.data.action, "create");
+    const cancellation = await client.callTool({
+      name: "freee_personal_application_prepare_cancel",
+      arguments: { id: "10034", reason: "Plans changed" },
+    });
+    assert.equal(cancellation.structuredContent.data.action, "cancel");
     assert.deepEqual(service.calls, [
       ["monthly-status", "2026-08"],
       ["approvals-list", "pending", 1],
@@ -199,6 +218,7 @@ test("MCP tools return safe structured envelopes and default the approval filter
         leaveStart: "13:00",
         leaveEnd: "18:00",
       }],
+      ["requests-prepare-cancel", "10034", "Plans changed"],
     ]);
   } finally {
     await client.close();
@@ -282,6 +302,16 @@ test("MCP commit schema rejects missing explicit confirmation before service inv
       },
     });
     assert.equal(withdraw.isError, true);
+    const cancel = await client.callTool({
+      name: "freee_personal_application_commit_cancel",
+      arguments: {
+        id: "10034",
+        reason: "Plans changed",
+        fingerprint: "f".repeat(64),
+        confirm: false,
+      },
+    });
+    assert.equal(cancel.isError, true);
     assert.deepEqual(service.calls, []);
   } finally {
     await client.close();

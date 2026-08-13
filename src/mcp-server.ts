@@ -198,7 +198,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_personal_application_detail", {
     title: "freee personal application detail",
-    description: "Read one application submitted by the current employee and report whether withdrawal is currently available.",
+    description: "Read one application submitted by the current employee and report whether pending withdrawal or approved-application cancellation is currently available.",
     inputSchema: { id: approvalIdSchema },
     annotations: readOnlyAnnotations,
   }, async ({ id }) => executeTool(() => service.getPersonalApplicationDetail(id)));
@@ -253,6 +253,38 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
       fingerprint,
       confirm,
     ),
+  ));
+
+  server.registerTool("freee_personal_application_prepare_cancel", {
+    title: "Preview a freee approved-application cancellation",
+    description: "Open and validate the cancellation form for one exact approved personal application without submitting it. Returns the original application, cancellation reason, route, and a binding fingerprint.",
+    inputSchema: {
+      id: approvalIdSchema,
+      reason: personalApplicationReasonSchema
+        .describe("Optional reason for cancelling the approved application. Empty is allowed when freee allows it."),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ id, reason }) => executeTool(
+    () => service.preparePersonalApplicationCancel(id, reason),
+  ));
+
+  server.registerTool("freee_personal_application_commit_cancel", {
+    title: "Submit a freee approved-application cancellation",
+    description: "Create one real cancellation application for an approved personal application only after matching preview and explicit current-message approval. The result is a new cancellation application that may still require approval; never call directly or retry automatically.",
+    inputSchema: {
+      id: approvalIdSchema,
+      reason: personalApplicationReasonSchema,
+      fingerprint: fingerprintSchema,
+      confirm: z.literal(true).describe("Must be true only after explicit current-message user approval."),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ id, reason, fingerprint, confirm }) => executeTool(
+    () => service.commitPersonalApplicationCancel(id, reason, fingerprint, confirm),
   ));
 
   server.registerTool("freee_personal_application_prepare_withdraw", {

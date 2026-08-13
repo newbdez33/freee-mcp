@@ -18,9 +18,11 @@ Prefer these tools for business operations when the host has loaded the installe
 | Monthly submit/withdraw execution | `freee_monthly_commit_action` | Real write; exact preview, current-message approval, and `confirm: true` required |
 | Personal application capabilities | `freee_personal_application_options` | Read-only; include a date to read exact leave types |
 | Current employee application list | `freee_personal_applications_list` | Read-only; defaults to pending |
-| Current employee application detail | `freee_personal_application_detail` | Read-only; reports withdrawal availability |
+| Current employee application detail | `freee_personal_application_detail` | Read-only; reports pending withdrawal and approved cancellation availability |
 | Leave/correction creation preview | `freee_personal_application_prepare_create` | Read-only form validation; returns fingerprint |
 | Leave/correction submission | `freee_personal_application_commit_create` | Real write; exact preview, current-message approval, and `confirm: true` required |
+| Approved-application cancellation preview | `freee_personal_application_prepare_cancel` | Read-only form validation; binds the original application and returns a fingerprint |
+| Approved-application cancellation submission | `freee_personal_application_commit_cancel` | Real write; creates a new cancellation request after exact preview and current-message approval |
 | Personal withdrawal preview | `freee_personal_application_prepare_withdraw` | Read-only; returns fingerprint |
 | Personal withdrawal execution | `freee_personal_application_commit_withdraw` | Real write; exact preview, current-message approval, and `confirm: true` required |
 | Application list | `freee_approvals_list` | Read-only; defaults to pending |
@@ -151,7 +153,7 @@ npm run freee -- requests list \
 npm run freee -- requests detail --id APPLICATION_NO
 ```
 
-These commands select the employee-side `申請` tab. The list binds `申請中`, `差戻し`, `承認済`, or `全て` to the exact matching freee response and rendered rows. Detail searches all pages for the exact No. and reports `withdraw` only when one enabled `申請を取り下げる` button exists.
+These commands select the employee-side `申請` tab. The list binds `申請中`, `差戻し`, `承認済`, or `全て` to the exact matching freee response and rendered rows. Detail searches all pages for the exact No. and reports `withdraw` when one enabled `申請を取り下げる` button exists or `cancel` when an approved application exposes an exact official `取消申請` link.
 
 Prepare leave creation without submitting:
 
@@ -172,6 +174,18 @@ npm run freee -- requests prepare-create \
 ```
 
 The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. When the selected leave type exposes a time range, both `--leave-start` and `--leave-end` are required and are bound into the preview; default `00:00` values are never accepted. Only after the current user message approves that exact preview, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`.
+
+Prepare and commit cancellation of an approved application separately:
+
+```bash
+npm run freee -- requests prepare-cancel \
+  --id APPLICATION_NO [--reason "REASON"]
+npm run freee -- requests commit-cancel \
+  --id APPLICATION_NO [--reason "REASON"] \
+  --fingerprint PREVIEW_SHA256 --confirm
+```
+
+Cancellation prepare requires the exact approved detail to expose `cancel`, validates that `取消申請` points to the official `ApprovalRequest::Revoke` form for the same original No., fills the optional reason, verifies the approval route, and binds the recent application list into the fingerprint. Cancellation commit submits once and must identify exactly one new `申請中`, `未承認`, or `承認済` cancellation application. The result application No. belongs to the new cancellation request, not the original leave. If it remains pending, approving it is a separate manager write requiring its own approval preview and current-message confirmation. Do not report the original leave as cancelled merely because the cancellation request was created.
 
 Prepare and commit a withdrawal separately:
 
@@ -312,7 +326,7 @@ Important error codes:
 - `PERSONAL_APPLICATION_TYPE_UNSUPPORTED`: the form has not been verified safely in this MCP version; do not navigate to hidden routes or guess fields.
 - `PERSONAL_APPLICATION_LEAVE_TYPE_UNAVAILABLE`: rerun options with the same date and use one exact returned label.
 - `PERSONAL_APPLICATION_PREVIEW_CHANGED`: no action occurred. Prepare again, present the new preview, and obtain new explicit approval.
-- `PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN`: do not retry. Read the personal application list/detail and inspect freee before considering another write.
+- `PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN`: do not retry. Read the personal application list/detail and inspect freee before considering another write, including both the original and any new cancellation application.
 - `INVALID_APPROVAL_PAGE`: use a positive page no greater than the returned `pageCount`.
 - `APPROVAL_NOT_FOUND`: the numeric application No. was absent after every manager-workflow page was read; do not substitute a similar item.
 - `APPROVAL_ACTION_UNAVAILABLE`: the application is already processed or the current account cannot perform that action; stop.
@@ -330,8 +344,8 @@ Important error codes:
 
 ## Current scope
 
-Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw; synchronized employee-side personal application list/detail plus fingerprint-bound leave/work-time-correction creation and withdrawal; Playwright monthly department attendance-monitor summaries; and synchronized paginated manager-side application list/detail plus fingerprint-bound single-item approval/return.
+Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw; synchronized employee-side personal application list/detail plus fingerprint-bound leave/work-time-correction creation, approved-application cancellation, and pending withdrawal; Playwright monthly department attendance-monitor summaries; and synchronized paginated manager-side application list/detail plus fingerprint-bound single-item approval/return.
 
 Implemented but unavailable to the current API role: API-backed direct department member daily punch status. Do not fall back.
 
-Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, overtime creation, multiple work segments/breaks, personal application deletion, audit logs, and batch changes. Keep these on `TODO.md`; do not directly run the legacy Playwright project.
+Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, overtime creation, multiple work segments/breaks, returned/draft personal application deletion, audit logs, and batch changes. Keep these on `TODO.md`; do not directly run the legacy Playwright project.

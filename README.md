@@ -145,6 +145,8 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_personal_application_detail` | Read-only | Read one current-employee application and its available actions |
 | `freee_personal_application_prepare_create` | Read-only preview | Fill and validate a leave or work-time correction form and generate a fingerprint |
 | `freee_personal_application_commit_create` | Write | Revalidate and submit one personal application |
+| `freee_personal_application_prepare_cancel` | Read-only preview | Validate cancellation of one approved personal application and generate a fingerprint |
+| `freee_personal_application_commit_cancel` | Write | Revalidate and create one cancellation application for an approved personal application |
 | `freee_personal_application_prepare_withdraw` | Read-only preview | Generate a withdrawal preview and fingerprint for one pending application |
 | `freee_personal_application_commit_withdraw` | Write | Revalidate and withdraw one pending personal application |
 | `freee_approvals_list` | Read-only | List pending, approved, returned, or all applications |
@@ -207,6 +209,9 @@ npm run freee -- requests commit-create --kind leave --date YYYY-MM-DD \
 npm run freee -- requests prepare-create --kind work-time-correction \
   --date YYYY-MM-DD --clock-in HH:MM --clock-out HH:MM \
   [--break-start HH:MM --break-end HH:MM] [--reason "REASON"]
+npm run freee -- requests prepare-cancel --id APPLICATION_NO [--reason "REASON"]
+npm run freee -- requests commit-cancel --id APPLICATION_NO [--reason "REASON"] \
+  --fingerprint PREVIEW_SHA256 --confirm
 npm run freee -- requests prepare-withdraw --id APPLICATION_NO
 npm run freee -- requests commit-withdraw --id APPLICATION_NO \
   --fingerprint PREVIEW_SHA256 --confirm
@@ -223,7 +228,7 @@ MCP and CLI writes follow the same safety model. Every real action must start wi
 
 The API implementation of `team status` is complete and tested, but the `attendance_manager` role used at GCU cannot read employee memberships through the Public API. The API backend returns the permission error and does not fall back to Playwright.
 
-The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, personal application list/detail/leave/work-time-correction/withdraw, department monthly attendance summaries, and employee application list/detail/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, and monthly work totals from the attendance list, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
+The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, personal application list/detail/leave/work-time-correction/withdraw/approved-application cancellation, department monthly attendance summaries, and employee application list/detail/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, and monthly work totals from the attendance list, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
 
 ## Monthly attendance applications
 
@@ -233,11 +238,11 @@ Monthly writes use the same two-step safety model as other writes. `monthly prep
 
 ## Personal attendance applications
 
-`requests list` explicitly selects the employee-side `申請` tab and synchronizes each `申請中`, `差戻し`, `承認済`, or `全て` filter with the matching freee response before parsing. `requests detail` searches every employee-side page for one exact application No. and reports `withdraw` only when one visible, enabled `申請を取り下げる` button is present.
+`requests list` explicitly selects the employee-side `申請` tab and synchronizes each `申請中`, `差戻し`, `承認済`, or `全て` filter with the matching freee response before parsing. `requests detail` searches every employee-side page for one exact application No. and reports `withdraw` when one visible, enabled `申請を取り下げる` button is present or `cancel` when an approved item exposes an exact official `取消申請` link.
 
 Call `requests options` before creating an application. With `--date`, it reads the exact leave types configured by the company for that date. Leave and one-segment work-time correction forms are supported; a work-time correction may include one optional break pair. The current test company does not enable `残業`, so the capability result reports overtime as unavailable and this version does not guess or bypass an unverified overtime form.
 
-Creation and withdrawal use separate prepare and commit commands. Prepare fills the official form, verifies the selected date, values, leave type, and approval route, and returns a SHA-256 fingerprint without clicking `申請` or `申請を取り下げる`. Commit reconstructs the same preview, stops on any change, requires explicit current-message approval, clicks once, preserves the resulting detail page, and verifies one new pending/approved application or the exact withdrawn application in `差戻し`. An unknown result is never retried automatically.
+Creation, approved-application cancellation, and pending withdrawal use separate prepare and commit commands. Cancellation prepare binds the original approved application, optional cancellation reason, official `ApprovalRequest::Revoke` form, approval route, and recent application list. Its commit creates and verifies exactly one new cancellation application; it does not claim that the original leave is cancelled until that new request is approved. Creation and cancellation never click the final `申請` during prepare, while withdrawal never clicks `申請を取り下げる`. Every commit reconstructs the same preview, stops on any change, requires explicit current-message approval, clicks once, and verifies the resulting application state. An unknown result is never retried automatically.
 
 ## Employee application handling
 

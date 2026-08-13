@@ -27,11 +27,14 @@ import {
   type BrowserMonthlySubmitForm,
 } from "./browser-monthly.js";
 import {
+  createPersonalApplicationCancelFingerprint,
   createPersonalApplicationCreateFingerprint,
   createPersonalApplicationListFingerprint,
   createPersonalApplicationWithdrawFingerprint,
   normalizePersonalApplicationCreateInput,
+  normalizePersonalApplicationReason,
   type BrowserPersonalApplicationCapability,
+  type BrowserPersonalApplicationCancelPreview,
   type BrowserPersonalApplicationCreateInput,
   type BrowserPersonalApplicationCreatePreview,
   type BrowserPersonalApplicationDetail,
@@ -757,6 +760,173 @@ export class FreeeBrowserClient {
       );
     }
     return { action: "create", verified: true, result };
+  }
+
+  async preparePersonalApplicationCancel(
+    id: string,
+    rawReason?: string,
+  ): Promise<{
+    id: string;
+    action: "cancel";
+    fingerprint: string;
+    preview: BrowserPersonalApplicationCancelPreview;
+  }> {
+    const reason = normalizePersonalApplicationReason(rawReason);
+    const existing = await this.getPersonalApplications("all", 1);
+    const original = await this.getPersonalApplicationDetail(id);
+    if (!original.availableActions.includes("cancel")) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_UNAVAILABLE",
+        "The requested approved personal application does not currently expose 取消申請.",
+        { details: { id, availableActions: original.availableActions }, exitCode: 2 },
+      );
+    }
+    const cancel = await this.getPersonalApplicationCancelLink(id);
+    if (!cancel) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_UNAVAILABLE",
+        "取消申請 became unavailable. No action was taken.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    await cancel.click();
+    const heading = this.page.getByRole("heading", { name: "取消申請を作成", exact: true });
+    await heading.waitFor({ state: "visible", timeout: this.config.navigationTimeoutMs })
+      .catch(() => undefined);
+    this.assertOfficialPage();
+    if (await heading.count() !== 1 || !await heading.isVisible()) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "freee did not open the expected 取消申請を作成 form.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    await this.assertPersonalApplicationCancelFormTarget(id);
+    const reasonInput = await this.getPersonalApplicationReasonInput();
+    await reasonInput.fill(reason);
+    if ((await reasonInput.inputValue()).trim() !== reason) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "freee did not retain the cancellation reason.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    const route = await this.readPersonalApplicationRoute();
+    const submit = this.page.getByRole("button", { name: "申請", exact: true });
+    if (await submit.count() !== 1 || !await submit.isVisible() || !await submit.isEnabled()) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "The freee cancellation form did not expose one enabled final submission button.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    await this.captureDiagnosticScreenshot("personal-application-cancel-fields-complete");
+    const preview: BrowserPersonalApplicationCancelPreview = {
+      original,
+      reason,
+      route,
+      existingFirstPage: {
+        count: existing.applications.length,
+        fingerprint: createPersonalApplicationListFingerprint(
+          existing.applications.map((application) => application.id),
+        ),
+      },
+    };
+    this.preparedPersonalApplicationFirstPageIds = existing.applications.map(
+      (application) => application.id,
+    );
+    return {
+      id,
+      action: "cancel",
+      fingerprint: createPersonalApplicationCancelFingerprint(preview),
+      preview,
+    };
+  }
+
+  async commitPersonalApplicationCancel(
+    id: string,
+    reason: string | undefined,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<{
+    id: string;
+    action: "cancel";
+    verified: true;
+    result: BrowserPersonalApplicationDetail;
+  }> {
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This command creates a real cancellation application for an approved personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with its fingerprint and `--confirm`.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    const prepared = await this.preparePersonalApplicationCancel(id, reason);
+    if (prepared.fingerprint !== fingerprint) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_PREVIEW_CHANGED",
+        "The approved application, cancellation form, route, or recent application list changed after preview. No action was taken; prepare a new preview.",
+        { details: { id, currentFingerprint: prepared.fingerprint }, exitCode: 2 },
+      );
+    }
+    const submit = this.page.getByRole("button", { name: "申請", exact: true });
+    if (await submit.count() !== 1 || !await submit.isVisible() || !await submit.isEnabled()) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_UNAVAILABLE",
+        "The final cancellation submission button became unavailable. No action was taken.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    await this.captureDiagnosticScreenshot("personal-application-cancel-before-submit");
+    try {
+      await submit.click({ timeout: this.config.navigationTimeoutMs });
+      await this.page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+      await this.page.waitForTimeout(1_000);
+      await this.captureDiagnosticScreenshot("personal-application-cancel-after-submit-click");
+    } catch {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        "The freee cancellation interaction did not complete cleanly. Do not retry; inspect the personal application list before any further write.",
+        { details: { id, action: "cancel" }, exitCode: 2 },
+      );
+    }
+    let result: BrowserPersonalApplicationDetail;
+    try {
+      const { applicationId, ...currentDetail } =
+        await this.readCurrentPersonalApplicationDetailSnapshot();
+      const after = await this.getPersonalApplications("all", 1);
+      await this.captureDiagnosticScreenshot("personal-application-cancel-after-submit-list");
+      const existingIds = new Set(this.preparedPersonalApplicationFirstPageIds);
+      const created = after.applications.filter((application) => !existingIds.has(application.id));
+      if (created.length !== 1 || created[0]!.id !== applicationId || applicationId === id) {
+        throw new Error(
+          `expected detail ${applicationId} to be the one new cancellation application, found ${created.length}`,
+        );
+      }
+      result = { application: created[0]!, ...currentDetail };
+    } catch {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        "freee did not expose exactly one verifiable new cancellation application after the click. Do not retry; inspect the personal application list before any further write.",
+        { details: { id, action: "cancel" }, exitCode: 2 },
+      );
+    }
+    if (result.application.status !== "申請中" && result.application.status !== "未承認"
+        && result.application.status !== "承認済") {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        `freee returned cancellation application status '${result.application.status}'. Do not retry; inspect the application before any further write.`,
+        {
+          details: {
+            id,
+            cancellationApplicationId: result.application.id,
+            status: result.application.status,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    return { id, action: "cancel", verified: true, result };
   }
 
   async preparePersonalApplicationWithdraw(id: string): Promise<{
@@ -1643,6 +1813,50 @@ export class FreeeBrowserClient {
     return value;
   }
 
+  private async getPersonalApplicationReasonInput(): Promise<Locator> {
+    let input = this.page.locator('[data-testid="申請理由"]');
+    if (await input.count() === 0) {
+      input = this.page.locator("tr").filter({ hasText: "申請理由" }).locator('input[type="text"]');
+    }
+    if (await input.count() !== 1 || !await input.isVisible() || !await input.isEnabled()) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "The freee personal application form did not expose one enabled 申請理由 input.",
+        { exitCode: 2 },
+      );
+    }
+    return input;
+  }
+
+  private async assertPersonalApplicationCancelFormTarget(id: string): Promise<void> {
+    await this.page.waitForFunction((expectedId) => Array.from(
+      document.querySelectorAll<HTMLTableRowElement>("table tr"),
+    )
+      .filter((row) => row.getClientRects().length > 0)
+      .some((row) => {
+        const cells = Array.from(row.querySelectorAll<HTMLElement>("th, td"))
+          .map((cell) => cell.innerText.trim().replace(/\s+/g, " "));
+        return /^申請No\.?$/.test(cells[0] ?? "")
+          && cells.slice(1).join(" ").trim() === expectedId;
+      }), id, { timeout: this.config.navigationTimeoutMs }).catch(() => undefined);
+    const matchingRows = await this.page.evaluate((expectedId) => Array.from(
+      document.querySelectorAll<HTMLTableRowElement>("table tr"),
+    )
+      .filter((row) => row.getClientRects().length > 0)
+      .map((row) => Array.from(row.querySelectorAll<HTMLElement>("th, td"))
+        .map((cell) => cell.innerText.trim().replace(/\s+/g, " ")))
+      .filter((cells) => /^申請No\.?$/.test(cells[0] ?? ""))
+      .map((cells) => cells.slice(1).join(" ").trim())
+      .filter((value) => value === expectedId), id);
+    if (matchingRows.length !== 1) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "The freee cancellation form did not bind to the exact original application No.",
+        { details: { id, matchCount: matchingRows.length }, exitCode: 2 },
+      );
+    }
+  }
+
   private async captureDiagnosticScreenshot(label: string): Promise<void> {
     if (!this.config.diagnosticDirectory) {
       return;
@@ -1920,11 +2134,62 @@ export class FreeeBrowserClient {
         { details: id === undefined ? undefined : { id }, exitCode: 2 },
       );
     }
-    const availableActions: Array<"withdraw"> = [];
+    const availableActions: Array<"withdraw" | "cancel"> = [];
     if (await withdraw.count() === 1 && await withdraw.isVisible() && await withdraw.isEnabled()) {
       availableActions.push("withdraw");
     }
+    if (await this.getPersonalApplicationCancelLink(id)) {
+      availableActions.push("cancel");
+    }
     return { availableActions };
+  }
+
+  private async getPersonalApplicationCancelLink(id?: string): Promise<Locator | null> {
+    const links = this.page.locator('a[href*="ApprovalRequest::Revoke"]');
+    const visible: Locator[] = [];
+    for (let index = 0; index < await links.count(); index += 1) {
+      const link = links.nth(index);
+      if (await link.isVisible() && (await link.innerText()).trim().replace(/\s+/g, " ") === "取消申請") {
+        visible.push(link);
+      }
+    }
+    if (visible.length > 1) {
+      throw new CliError(
+        "BROWSER_PAGE_AMBIGUOUS",
+        "freee rendered more than one 取消申請 action.",
+        { details: id === undefined ? undefined : { id }, exitCode: 2 },
+      );
+    }
+    if (visible.length === 0) {
+      return null;
+    }
+    const href = await visible[0]!.getAttribute("href");
+    let originId: string | null = null;
+    try {
+      if (href === null) {
+        throw new Error("missing href");
+      }
+      const url = new URL(href, this.page.url());
+      const [hashPath, hashQuery] = url.hash.slice(1).split("?", 2);
+      const params = new URLSearchParams(hashQuery ?? "");
+      if (!isAllowedFreeePageUrl(url.href)
+          || url.pathname !== "/approval_requests"
+          || hashPath !== "/requests/new"
+          || params.get("type") !== "ApprovalRequest::Revoke") {
+        throw new Error("unexpected cancellation URL");
+      }
+      originId = params.get("origin_request_id");
+      if (!originId || !/^\d+$/.test(originId)) {
+        throw new Error("invalid origin request id");
+      }
+    } catch {
+      throw new CliError(
+        "BROWSER_NAVIGATION_BLOCKED",
+        "The 取消申請 action did not point to the expected official freee cancellation form.",
+        { details: id === undefined ? undefined : { id }, exitCode: 2 },
+      );
+    }
+    return visible[0]!;
   }
 
   private async openApprovals(): Promise<void> {
@@ -2307,8 +2572,27 @@ export class FreeeBrowserClient {
     });
   }
 
+  private async readStableApprovalDetailSnapshot(): Promise<
+    Pick<BrowserApprovalDetail, "fields" | "tables" | "detailLines">
+  > {
+    let previous = await this.readApprovalDetailSnapshot();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await this.page.waitForTimeout(200);
+      const current = await this.readApprovalDetailSnapshot();
+      if (JSON.stringify(current) === JSON.stringify(previous)) {
+        return current;
+      }
+      previous = current;
+    }
+    throw new CliError(
+      "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+      "The freee approval detail did not settle into one stable preview. No action was taken.",
+      { exitCode: 2 },
+    );
+  }
+
   private async readApprovalDetail(summary: BrowserApprovalSummary): Promise<BrowserApprovalDetail> {
-    const snapshot = await this.readApprovalDetailSnapshot();
+    const snapshot = await this.readStableApprovalDetailSnapshot();
     const availableActions: BrowserApprovalAction[] = [];
     for (const [action, label] of [
       ["approve", "承認"],

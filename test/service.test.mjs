@@ -95,5 +95,9 @@ test("shared service personal application commits require confirmation before la
     service.commitPersonalApplicationWithdraw("100", "0".repeat(64), false),
     (error) => error.code === "CONFIRMATION_REQUIRED",
   );
+  await assert.rejects(
+    service.commitPersonalApplicationCancel("100", "Plans changed", "0".repeat(64), false),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
   assert.equal(launches, 0);
 });

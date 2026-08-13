@@ -192,7 +192,7 @@ The Playwright backend supports System Keychain credentials, persistent login, p
 
 ## Employee application handling
 
-`approvals list` defaults to pending applications. `--status returned|approved|all` reads other states. `approvals detail --id` returns the list summary, application fields, approval route, department, comments, and freee automatic-check results. Both commands are read-only.
+`approvals list` explicitly selects freee's manager-side `承認` tab and defaults to its pending `未承認` queue; it never reads the default employee-side `申請` tab as an approval queue. Each result includes the applicant, and `--status returned|approved|all` reads other manager-side states. `approvals detail --id` returns the list summary, application fields, approval route, department, comments, and freee automatic-check results. Both commands are read-only.
 
 A single application write has two separate steps:
 

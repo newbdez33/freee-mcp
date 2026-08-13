@@ -72,6 +72,97 @@ function createFakeBrowser(availableActions) {
   };
 }
 
+function createFakeApprovalBrowser() {
+  const state = {
+    approvalTabSelected: false,
+    filter: null,
+    clicks: [],
+    url: "https://p.secure.freee.co.jp/approval_requests",
+  };
+  const page = {
+    url() { return state.url; },
+    getByRole(role, options) {
+      if (role === "tab" && options.name === "承認") {
+        return {
+          async count() { return 1; },
+          async isVisible() { return true; },
+          async getAttribute(name) {
+            return name === "aria-selected" && state.approvalTabSelected ? "true" : "false";
+          },
+          async click() {
+            state.approvalTabSelected = true;
+            state.clicks.push("approval-tab");
+          },
+        };
+      }
+      if (role === "button" && ["未承認", "差戻し", "承認済", "全て"].includes(options.name)) {
+        return {
+          async count() { return 1; },
+          async isVisible() { return true; },
+          async getAttribute(name) {
+            return name === "aria-pressed" && state.filter === options.name ? "true" : "false";
+          },
+          async click() {
+            state.filter = options.name;
+            state.clicks.push(`filter:${options.name}`);
+          },
+        };
+      }
+      throw new Error(`unexpected role locator: ${role} ${options.name}`);
+    },
+    async evaluate() {
+      return {
+        headers: [
+          "ステータス",
+          "No.",
+          "申請者（代理申請者）",
+          "種別",
+          "対象日",
+          "申請内容",
+          "申請理由",
+          "申請日",
+          "現在の承認者",
+          "チェック結果",
+        ],
+        rows: [[
+          "",
+          "未承認",
+          "9876",
+          "申請者 A",
+          "休暇",
+          "2026/08/14",
+          "有休 全休",
+          "私用",
+          "2026/08/13",
+          "承認者 B",
+          "問題なし",
+          "",
+        ]],
+        pageCount: 1,
+      };
+    },
+    async waitForLoadState() {},
+    async waitForTimeout() {},
+  };
+  const context = { async close() {} };
+  const credentials = {
+    async getCredentials() {
+      throw new Error("credentials must not be read for an authenticated profile");
+    },
+  };
+  const config = {
+    headless: true,
+    channel: "chrome",
+    profileDirectory: "/tmp/freee-agent-approval-browser-test",
+    credentialService: "freee-agent-web-test",
+    navigationTimeoutMs: 1_000,
+    interactionTimeoutMs: 1_000,
+  };
+  const client = new FreeeBrowserClient(context, page, credentials, config);
+  client.ensureAuthenticated = async () => {};
+  return { client, state };
+}
+
 test("browser main-frame allowlist accepts only the three official HTTPS hosts", () => {
   assert.equal(isAllowedFreeePageUrl("https://p.secure.freee.co.jp/"), true);
   assert.equal(isAllowedFreeePageUrl("https://accounts.secure.freee.co.jp/sessions/new"), true);
@@ -117,6 +208,17 @@ test("confirmed Playwright clock action clicks once and verifies changed state",
   assert.deepEqual(result.status.availableActions, ["break-start"]);
 });
 
+test("Playwright approval list selects the manager queue before its pending filter", async () => {
+  const { client, state } = createFakeApprovalBrowser();
+
+  const result = await client.getApprovals("pending");
+
+  assert.deepEqual(state.clicks, ["approval-tab", "filter:未承認"]);
+  assert.equal(result.applicationCount, 1);
+  assert.equal(result.applications[0].applicant, "申請者 A");
+  assert.equal(result.applications[0].type, "休暇");
+});
+
 test("Playwright approval commit stops before page access without explicit confirmation", async () => {
   const { client, state } = createFakeBrowser([]);
 
@@ -133,6 +235,7 @@ test("Playwright approval commit stops when the prepared detail fingerprint chan
     application: {
       id: "1234",
       status: "申請中",
+      applicant: "申請者 A",
       type: "休暇",
       targetDate: "2026/08/12",
       content: "有休 全休",

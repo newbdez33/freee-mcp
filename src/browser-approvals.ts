@@ -8,6 +8,7 @@ export type BrowserApprovalAction = "approve" | "return";
 export interface BrowserApprovalSummary {
   id: string;
   status: string;
+  applicant: string | null;
   type: string;
   targetDate: string | null;
   content: string | null;
@@ -54,13 +55,17 @@ export function parseApprovalListSnapshot(snapshot: ApprovalListSnapshot): {
     );
   }
 
-  const indexes = Object.fromEntries(
-    requiredHeaders.map((header) => [header, snapshot.headers.indexOf(header)]),
-  ) as Record<string, number>;
+  const applicantHeader = ["申請者（代理申請者）", "申請者"]
+    .find((header) => snapshot.headers.includes(header));
   const applications = snapshot.rows.map((cells) => {
-    const id = normalize(cells[indexes["No."] ?? -1]);
-    const status = normalize(cells[indexes["ステータス"] ?? -1]);
-    const type = normalize(cells[indexes["種別"] ?? -1]);
+    const offset = getApprovalRowOffset(snapshot.headers, cells);
+    const valueFor = (header: string): string | undefined => {
+      const index = snapshot.headers.indexOf(header);
+      return index < 0 ? undefined : cells[index + offset];
+    };
+    const id = normalize(valueFor("No."));
+    const status = normalize(valueFor("ステータス"));
+    const type = normalize(valueFor("種別"));
     if (!id || !/^\d+$/.test(id) || !status || !type) {
       throw new CliError(
         "BROWSER_APPROVAL_PAGE_UNEXPECTED",
@@ -71,16 +76,41 @@ export function parseApprovalListSnapshot(snapshot: ApprovalListSnapshot): {
     return {
       id,
       status,
+      applicant: applicantHeader
+        ? normalize(valueFor(applicantHeader))
+        : null,
       type,
-      targetDate: normalize(cells[indexes["対象日"] ?? -1]),
-      content: normalize(cells[indexes["申請内容"] ?? -1]),
-      reason: normalize(cells[indexes["申請理由"] ?? -1]),
-      appliedAt: normalize(cells[indexes["申請日"] ?? -1]),
-      currentApprover: normalize(cells[indexes["現在の承認者"] ?? -1]),
-      checkResult: normalize(cells[indexes["チェック結果"] ?? -1]),
+      targetDate: normalize(valueFor("対象日")),
+      content: normalize(valueFor("申請内容")),
+      reason: normalize(valueFor("申請理由")),
+      appliedAt: normalize(valueFor("申請日")),
+      currentApprover: normalize(valueFor("現在の承認者")),
+      checkResult: normalize(valueFor("チェック結果")),
     };
   });
   return { pageCount: snapshot.pageCount ?? 1, applications };
+}
+
+export function getApprovalRowOffset(headers: string[], cells: string[]): number {
+  const statusIndex = headers.indexOf("ステータス");
+  const idIndex = headers.indexOf("No.");
+  const typeIndex = headers.indexOf("種別");
+  const maximumOffset = Math.max(0, cells.length - headers.length);
+  const candidates = Array.from({ length: maximumOffset + 1 }, (_, offset) => offset)
+    .filter((offset) => {
+      const status = normalize(cells[statusIndex + offset]);
+      const id = normalize(cells[idIndex + offset]);
+      const type = normalize(cells[typeIndex + offset]);
+      return Boolean(status && id && /^\d+$/.test(id) && type);
+    });
+  if (candidates.length !== 1) {
+    throw new CliError(
+      "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+      "A freee approval row did not align uniquely with the supported table headers.",
+      { exitCode: 2 },
+    );
+  }
+  return candidates[0]!;
 }
 
 export function createApprovalFingerprint(

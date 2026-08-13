@@ -91,7 +91,7 @@ npm run freee -- approvals detail --id APPLICATION_NO
 
 `team status --date` currently accepts a date only when its month matches the month selected by freee. `--company-id` and `--group-id` are not accepted in the Playwright branch; the CLI uses the company and visible management range already selected by freee and never guesses another one. `me` is not implemented for Playwright.
 
-`approvals list` defaults to the current account's pending (`申請中`) approval workflow. Each item includes the freee application No., status, type, target date, content, reason, application date, current approver, and automatic-check summary. `approvals detail` opens exactly one row by its numeric No. and returns its full visible fields, approval route, department, comment history, automatic-check messages, and currently available actions. These commands are Playwright-only and never fall back to API.
+`approvals list` explicitly selects the current account's manager-side `承認` tab and defaults to its pending (`未承認`) queue. It never treats the default employee-side `申請` tab as an approval queue. Each item includes the freee application No., applicant, status, type, target date, content, reason, application date, current approver, and automatic-check summary. `approvals detail` opens exactly one row by its numeric No. and returns its full visible fields, approval route, department, comment history, automatic-check messages, and currently available actions. These commands are Playwright-only and never fall back to API.
 
 ## Employee application actions
 

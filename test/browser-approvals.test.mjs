@@ -40,12 +40,57 @@ test("approval list parser maps the supported freee table schema", () => {
   assert.deepEqual(result.applications, [{
     id: "1234",
     status: "申請中",
+    applicant: null,
     type: "休暇",
     targetDate: "2026/08/12",
     content: "有休 全休",
     reason: "私用",
     appliedAt: "2026/08/11",
     currentApprover: "承認者 A",
+    checkResult: "問題なし",
+  }]);
+});
+
+test("approval list parser preserves manager-only columns and blank table columns", () => {
+  const result = parseApprovalListSnapshot({
+    headers: [
+      "ステータス",
+      "No.",
+      "申請者（代理申請者）",
+      "種別",
+      "対象日",
+      "申請内容",
+      "申請理由",
+      "申請日",
+      "現在の承認者",
+      "チェック結果",
+    ],
+    rows: [[
+      "",
+      "未承認",
+      "9876",
+      "申請者 A",
+      "休暇",
+      "2026/08/14",
+      "有休 全休",
+      "私用",
+      "2026/08/13",
+      "承認者 B",
+      "問題なし",
+      "",
+    ]],
+  });
+
+  assert.deepEqual(result.applications, [{
+    id: "9876",
+    status: "未承認",
+    applicant: "申請者 A",
+    type: "休暇",
+    targetDate: "2026/08/14",
+    content: "有休 全休",
+    reason: "私用",
+    appliedAt: "2026/08/13",
+    currentApprover: "承認者 B",
     checkResult: "問題なし",
   }]);
 });
@@ -76,6 +121,7 @@ test("approval preview fingerprint binds the exact action and detail content", (
     application: {
       id: "1234",
       status: "申請中",
+      applicant: "申請者 A",
       type: "休暇",
       targetDate: "2026/08/12",
       content: "有休 全休",

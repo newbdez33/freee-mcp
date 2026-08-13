@@ -7,6 +7,7 @@ import { chromium, type BrowserContext, type Locator, type Page } from "playwrig
 import { clockActionMap, type ClockAction } from "./attendance.js";
 import {
   createApprovalFingerprint,
+  getApprovalRowOffset,
   parseApprovalListSnapshot,
   type BrowserApprovalAction,
   type BrowserApprovalDetail,
@@ -625,11 +626,22 @@ export class FreeeBrowserClient {
         { exitCode: 2 },
       );
     }
-    const approvalTab = this.page.getByText("承認", { exact: true });
-    if (await approvalTab.count() === 0) {
+    const approvalTab = this.page.getByRole("tab", { name: "承認", exact: true });
+    if (await approvalTab.count() !== 1 || !await approvalTab.isVisible()) {
       throw new CliError(
         "BROWSER_APPROVAL_PAGE_UNEXPECTED",
-        "The freee application page did not expose the approval tab.",
+        "The freee application page did not expose one unique visible approval tab.",
+        { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
+      );
+    }
+    if (await approvalTab.getAttribute("aria-selected") !== "true") {
+      await approvalTab.click();
+      await this.page.waitForTimeout(500);
+    }
+    if (await approvalTab.getAttribute("aria-selected") !== "true") {
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        "freee did not select the approval workflow tab.",
         { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
       );
     }
@@ -637,7 +649,7 @@ export class FreeeBrowserClient {
 
   private async selectApprovalFilter(status: BrowserApprovalListStatus): Promise<void> {
     const labels: Record<BrowserApprovalListStatus, string> = {
-      pending: "申請中",
+      pending: "未承認",
       returned: "差戻し",
       approved: "承認済",
       all: "全て",
@@ -651,8 +663,17 @@ export class FreeeBrowserClient {
         { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
       );
     }
-    await button.click();
+    if (await button.getAttribute("aria-pressed") !== "true") {
+      await button.click();
+    }
     await this.page.waitForTimeout(500);
+    if (await button.getAttribute("aria-pressed") !== "true") {
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        `freee did not select the approval filter '${label}'.`,
+        { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
+      );
+    }
   }
 
   private async readApprovalListSnapshot(): Promise<{
@@ -674,8 +695,7 @@ export class FreeeBrowserClient {
         return { headers: [], rows: [], pageCount: 1 };
       }
       const headers = Array.from(table.querySelectorAll<HTMLElement>("thead th"))
-        .map((cell) => cell.innerText.trim().replace(/\s+/g, " "))
-        .filter((value) => value.length > 0);
+        .map((cell) => cell.innerText.trim().replace(/\s+/g, " "));
       const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr"))
         .filter((row) => row.getClientRects().length > 0)
         .map((row) => Array.from(row.querySelectorAll<HTMLElement>("th, td"))
@@ -694,7 +714,8 @@ export class FreeeBrowserClient {
   }
 
   private async findAndOpenApproval(id: string): Promise<BrowserApprovalSummary> {
-    const parsed = parseApprovalListSnapshot(await this.readApprovalListSnapshot());
+    const snapshot = await this.readApprovalListSnapshot();
+    const parsed = parseApprovalListSnapshot(snapshot);
     if (parsed.pageCount !== 1) {
       throw new CliError(
         "BROWSER_APPROVAL_PAGINATION_UNSUPPORTED",
@@ -710,11 +731,20 @@ export class FreeeBrowserClient {
         { details: { id }, exitCode: 2 },
       );
     }
+    const idColumnIndex = snapshot.headers.indexOf("No.");
+    if (idColumnIndex < 0) {
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        "The freee approval list did not expose its application number column.",
+        { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
+      );
+    }
+    const rowOffset = getApprovalRowOffset(snapshot.headers, snapshot.rows[0]!);
     const rows = this.page.locator("table tbody tr.vb-tableListRow--clickable");
     const matches: Locator[] = [];
     for (let index = 0; index < await rows.count(); index += 1) {
       const row = rows.nth(index);
-      if ((await row.locator("th, td").nth(1).innerText()).trim() === id) {
+      if ((await row.locator("th, td").nth(idColumnIndex + rowOffset).innerText()).trim() === id) {
         matches.push(row);
       }
     }

@@ -288,6 +288,8 @@ FREEE_BROWSER_HEADLESS=false npm run freee -- browser status
 
 Playwright fills credentials only after validating `accounts.secure.freee.co.jp`, and main-frame navigation is limited to `p.secure.freee.co.jp` and `ep.secure.freee.co.jp`. The user completes MFA, CAPTCHA, or abnormal-login verification in the visible browser. A successful session is cached in the private persistent profile, while System Keychain credentials remain the recovery source when the session expires. Headless mode can then be restored.
 
+In headless mode, the runtime derives the User-Agent from the selected local Chrome channel and removes only the `HeadlessChrome` product token before starting the persistent session. Playwright keeps the matching request header and User-Agent Client Hints. This is limited User-Agent normalization: `navigator.webdriver` remains enabled, no stealth or fingerprint-evasion package is used, and the project does not claim that a site cannot recognize browser automation.
+
 When MCP first discovers that web credentials are missing, `freee_auth_status` or another tool returns the local setup command. The agent may only show that command to the user; it must never request or collect the username or password in chat.
 
 The persistent browser profile defaults to `~/.freee-agent/playwright-profile` and is restricted to the current user. The CLI rejects a profile configured inside the repository.

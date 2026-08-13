@@ -107,6 +107,24 @@ export function isAllowedFreeePageUrl(value: string): boolean {
   }
 }
 
+export function normalizeHeadlessChromeUserAgent(userAgent: string): string {
+  return userAgent.replace("HeadlessChrome/", "Chrome/");
+}
+
+async function deriveHeadlessChromeUserAgent(channel?: string): Promise<string> {
+  const browser = await chromium.launch({
+    headless: true,
+    ...(channel ? { channel } : {}),
+  });
+  try {
+    const page = await browser.newPage();
+    const userAgent = await page.evaluate(() => navigator.userAgent);
+    return normalizeHeadlessChromeUserAgent(userAgent);
+  } finally {
+    await browser.close();
+  }
+}
+
 export class FreeeBrowserClient {
   private constructor(
     private readonly context: BrowserContext,
@@ -121,9 +139,13 @@ export class FreeeBrowserClient {
   ): Promise<FreeeBrowserClient> {
     await prepareProfileDirectory(config.profileDirectory);
     try {
+      const userAgent = config.headless
+        ? await deriveHeadlessChromeUserAgent(config.channel)
+        : undefined;
       const context = await chromium.launchPersistentContext(config.profileDirectory, {
         headless: config.headless,
         ...(config.channel ? { channel: config.channel } : {}),
+        ...(userAgent ? { userAgent } : {}),
         viewport: { width: 1440, height: 1000 },
       });
       context.setDefaultTimeout(config.navigationTimeoutMs);

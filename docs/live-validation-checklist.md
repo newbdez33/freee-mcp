@@ -4,6 +4,8 @@ This checklist tracks capabilities that are implemented and covered by automated
 
 Baseline date: 2026-08-13.
 
+The ordered, reversible workflow for the Playwright application and attendance-management cases that the maintainer will execute with a personal account is documented in [`personal-account-live-test-plan.md`](personal-account-live-test-plan.md). Public API validation and real clock commits remain tracked here but are explicitly outside that plan.
+
 The checklist intentionally excludes features that are not implemented, including overtime creation, multiple work segments or breaks, employee daily detail, recursive child-department aggregation, deletes, batch actions, and audit logs.
 
 ## Recorded live validation baseline

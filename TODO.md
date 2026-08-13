@@ -77,6 +77,7 @@
 - [x] 使用真实 System Keychain + Playwright 完成 STDIO 工具发现和个人状态只读验证
 - [x] 增加 Codex `.codex/config.toml` 开发配置与 Claude Code 用户级 plugin/marketplace 清单
 - [x] 更新共用 Skill，业务操作优先使用 MCP，CLI 保留初始化和故障处理职责
+- [ ] 在下一个小版本让 `freee_backend_status` 同时返回 `version` 和 `backend`，使 Agent 能直接报告实际 MCP 版本而无需通过插件缓存路径推断
 - [ ] 增加 MCP 服务器并发会话、超时和取消的压力测试
 - [x] Claude 插件通过 `${CLAUDE_PLUGIN_ROOT}` 与 `${CLAUDE_PLUGIN_DATA}` 稳定解析运行代码和跨版本配置
 

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   FreeeBrowserClient,
   isAllowedFreeePageUrl,
+  normalizeHeadlessChromeUserAgent,
   readPlaywrightRuntimeConfig,
 } from "../dist/browser.js";
 import { createApprovalFingerprint } from "../dist/browser-approvals.js";
@@ -235,6 +236,21 @@ test("browser main-frame allowlist accepts only the three official HTTPS hosts",
   assert.equal(isAllowedFreeePageUrl("http://p.secure.freee.co.jp/"), false);
   assert.equal(isAllowedFreeePageUrl("https://p.secure.freee.co.jp.example.com/"), false);
   assert.equal(isAllowedFreeePageUrl("https://secure.freee.co.jp/"), false);
+});
+
+test("headless Chrome user agent is normalized without pinning a browser version", () => {
+  assert.equal(
+    normalizeHeadlessChromeUserAgent(
+      "Mozilla/5.0 AppleWebKit/537.36 HeadlessChrome/151.0.0.0 Safari/537.36",
+    ),
+    "Mozilla/5.0 AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36",
+  );
+  assert.equal(
+    normalizeHeadlessChromeUserAgent(
+      "Mozilla/5.0 AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36",
+    ),
+    "Mozilla/5.0 AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36",
+  );
 });
 
 test("browser profile must remain outside the repository", () => {

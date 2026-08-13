@@ -582,6 +582,8 @@ test("Playwright personal application commits never click without explicit confi
 test("Playwright personal application creation binds its preview and verifies one new item", async () => {
   const { client } = createFakeBrowser([]);
   let clicks = 0;
+  let currentDetailReads = 0;
+  let detailReopens = 0;
   const fingerprint = "c".repeat(64);
   client.preparePersonalApplicationCreate = async () => {
     client.preparedPersonalApplicationFirstPageIds = ["10"];
@@ -600,12 +602,22 @@ test("Playwright personal application creation binds its preview and verifies on
     async isEnabled() { return true; },
     async click() { clicks += 1; },
   });
+  client.readCurrentPersonalApplicationDetailSnapshot = async () => {
+    currentDetailReads += 1;
+    return {
+      applicationId: "11",
+      fields: [{ label: "申請内容", value: "有休（半休） 13:00 - 18:00" }],
+      tables: [],
+      detailLines: ["申請が作成されました。"],
+      availableActions: ["withdraw"],
+    };
+  };
+  client.getPersonalApplicationDetail = async () => {
+    detailReopens += 1;
+    throw new Error("creation must not reopen the detail after submission");
+  };
   client.getPersonalApplications = async () => ({
-    applications: [{ id: "11" }, { id: "10" }],
-  });
-  client.getPersonalApplicationDetail = async (id) => ({
-    application: { id, status: "申請中" },
-    availableActions: ["withdraw"],
+    applications: [{ id: "11", status: "申請中" }, { id: "10", status: "承認済" }],
   });
 
   const result = await client.commitPersonalApplicationCreate({
@@ -614,8 +626,88 @@ test("Playwright personal application creation binds its preview and verifies on
     leaveType: "有休",
   }, fingerprint, true);
   assert.equal(clicks, 1);
+  assert.equal(currentDetailReads, 1);
+  assert.equal(detailReopens, 0);
   assert.equal(result.verified, true);
   assert.equal(result.result.application.id, "11");
+  assert.deepEqual(result.result.fields, [
+    { label: "申請内容", value: "有休（半休） 13:00 - 18:00" },
+  ]);
+});
+
+test("Playwright personal application creation treats a missing post-submit detail as unknown", async () => {
+  const { client } = createFakeBrowser([]);
+  const fingerprint = "c".repeat(64);
+  client.preparePersonalApplicationCreate = async () => ({
+    action: "create",
+    fingerprint,
+    preview: {
+      application: { kind: "leave", date: "2026-08-14" },
+      existingFirstPage: { count: 0, fingerprint: "d".repeat(64) },
+    },
+  });
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {},
+  });
+  client.readCurrentPersonalApplicationDetailSnapshot = async () => {
+    throw new Error("detail did not render");
+  };
+  client.getPersonalApplications = async () => ({
+    applications: [{ id: "11", status: "申請中" }],
+  });
+
+  await assert.rejects(
+    client.commitPersonalApplicationCreate({
+      kind: "leave",
+      date: "2026-08-14",
+      leaveType: "有休",
+    }, fingerprint, true),
+    (error) => error.code === "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+  );
+});
+
+test("Playwright personal application creation binds the detail No. to the new list item", async () => {
+  const { client } = createFakeBrowser([]);
+  const fingerprint = "c".repeat(64);
+  client.preparePersonalApplicationCreate = async () => {
+    client.preparedPersonalApplicationFirstPageIds = ["10"];
+    return {
+      action: "create",
+      fingerprint,
+      preview: {
+        application: { kind: "leave", date: "2026-08-14" },
+        existingFirstPage: { count: 1, fingerprint: "d".repeat(64) },
+      },
+    };
+  };
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {},
+  });
+  client.readCurrentPersonalApplicationDetailSnapshot = async () => ({
+    applicationId: "12",
+    fields: [],
+    tables: [],
+    detailLines: [],
+    availableActions: ["withdraw"],
+  });
+  client.getPersonalApplications = async () => ({
+    applications: [{ id: "11", status: "申請中" }, { id: "10", status: "承認済" }],
+  });
+
+  await assert.rejects(
+    client.commitPersonalApplicationCreate({
+      kind: "leave",
+      date: "2026-08-14",
+      leaveType: "有休",
+    }, fingerprint, true),
+    (error) => error.code === "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+  );
 });
 
 test("Playwright personal application withdrawal verifies the exact returned item", async () => {

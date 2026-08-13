@@ -22,6 +22,8 @@ Prefer the installed `freee` MCP tools for business operations. Use the companio
 
 For MCP, read `structuredContent` and report the meaningful result in the user's language. When an installed MCP CLI command is necessary, use the exact command returned by MCP. In a Claude plugin, its resolved form is `node "${CLAUDE_PLUGIN_ROOT}/scripts/plugin-cli.mjs" --plugin-data "${CLAUDE_PLUGIN_DATA}" <arguments>`. In a Pi-managed package without MCP support, resolve the package root from this Skill and run `node <package-root>/scripts/standalone-cli.mjs <arguments>`. For source development only, run `npm run freee -- <arguments>` from the repository root. Read the JSON envelope from stdout or stderr.
 
+If a commit tool or command returns no parseable JSON, treat the write result as unknown even when the browser appeared to show success. Never repeat the commit. On the same execution surface, use only the matching read-only status, list, or detail operation to find one exact result that matches the prepared target and content. Report a recovered success only when that independent read is unambiguous; otherwise stop and ask the user to inspect freee. A read-only command with missing output may be retried once.
+
 ## Enforce safety
 
 - Treat MCP `confirm: true` and CLI `--confirm` as assertions that the user explicitly requested that exact real action in the current message. Never infer approval from an earlier message, a schedule, or a general request to set up automation.
@@ -41,6 +43,7 @@ For MCP, read `structuredContent` and report the meaningful result in the user's
 - Do not switch backends after `team status` or another command fails. Change `FREEE_BACKEND` only when the user explicitly asks to select a different complete backend.
 - Do not switch from a failed MCP tool to the CLI, or from a failed CLI command to MCP, to bypass validation, permissions, ambiguity, or confirmation. Diagnose the original error on the same surface.
 - If freee says the action is unavailable, report the returned available types and stop. Do not retry a different write action.
+- Missing, truncated, or malformed output after a write is an unknown result, not a failed write. Never retry it automatically; independently read the exact target before deciding what happened.
 - Never use an approval commit tool or command directly. First prepare, present the application identity, type, target date, content, reason, automatic checks, requested action, and fingerprint, and wait for explicit approval in a new current message.
 - A general request to implement, test, inspect, continue, handle applications, or approve applications is not approval of a specific real application. Never run a real approval write while developing or testing.
 - Never use a monthly commit tool or command directly. First prepare, present the exact period, current state, target month, route, approval steps, checks, requested action, and fingerprint, then wait for explicit approval in a new current message.

@@ -93,6 +93,7 @@
 ## 真实环境待验收
 
 - [ ] 按 [`docs/live-validation-checklist.md`](docs/live-validation-checklist.md) 逐项完成已实现功能的真实 freee / 真实 Agent 验收；每次只执行一个经过 prepare 和当次明确确认的写操作
+- [ ] 下次本来就需要创建本人申请时，确认 commit 返回完整 JSON；不要为了验证输出单独制造一次真实申请
 - [ ] 验收完成后仅记录版本、后端、对象编号/期间、指纹前 12 位和最终状态，不保存凭据、Cookie、员工表格或截图
 
 ## 安全规则

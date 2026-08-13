@@ -282,6 +282,8 @@ Errors are emitted on stderr and return a non-zero exit code:
 }
 ```
 
+If neither stream contains one complete JSON envelope, handle the command as a transport failure. A read-only command may be retried once. After any commit command, do not repeat the write: use the corresponding read-only status, list, or detail command to verify the exact prepared target. Only report a recovered success when one unique record matches the expected identifier or period, action, content, and resulting state. If that cannot be proven, report the result as unknown and ask the user to inspect freee.
+
 Important error codes:
 
 - `CREDENTIAL_UNAVAILABLE`: check the configured backend. Never request that the user paste a Token into chat.

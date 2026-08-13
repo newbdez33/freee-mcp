@@ -727,14 +727,18 @@ export class FreeeBrowserClient {
     }
     let result: BrowserPersonalApplicationDetail;
     try {
+      const { applicationId, ...currentDetail } =
+        await this.readCurrentPersonalApplicationDetailSnapshot();
       const after = await this.getPersonalApplications("all", 1);
       await this.captureDiagnosticScreenshot("personal-application-after-submit-list");
       const existingIds = new Set(this.preparedPersonalApplicationFirstPageIds);
       const created = after.applications.filter((application) => !existingIds.has(application.id));
-      if (created.length !== 1) {
-        throw new Error(`expected one new application, found ${created.length}`);
+      if (created.length !== 1 || created[0]!.id !== applicationId) {
+        throw new Error(
+          `expected detail ${applicationId} to be the one new application, found ${created.length}`,
+        );
       }
-      result = await this.getPersonalApplicationDetail(created[0]!.id);
+      result = { application: created[0]!, ...currentDetail };
     } catch {
       throw new CliError(
         "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
@@ -1823,20 +1827,61 @@ export class FreeeBrowserClient {
 
   private async openPersonalApplicationDetail(id: string): Promise<BrowserPersonalApplicationDetail> {
     const detail = await this.openEmployeeApplicationDetail(id);
+    const currentDetail = await this.readCurrentPersonalApplicationActions(id);
+    const { availableActions: _managerActions, ...personalDetail } = detail;
+    return { ...personalDetail, ...currentDetail };
+  }
+
+  private async readCurrentPersonalApplicationDetailSnapshot(): Promise<
+    Omit<BrowserPersonalApplicationDetail, "application"> & { applicationId: string }
+  > {
+    const back = this.page.getByText("一覧に戻る", { exact: true });
+    if (await back.count() !== 1 || !await back.isVisible()) {
+      throw new CliError(
+        "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+        "freee did not expose one unambiguous personal application detail after submission.",
+        { exitCode: 2 },
+      );
+    }
+    const applicationNumber = this.page.getByText(/^No\.\s*\d+$/, { exact: true });
+    if (await applicationNumber.count() !== 1 || !await applicationNumber.isVisible()) {
+      throw new CliError(
+        "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+        "freee did not expose one unambiguous application No. after submission.",
+        { exitCode: 2 },
+      );
+    }
+    const applicationId = /^No\.\s*(\d+)$/.exec((await applicationNumber.innerText()).trim())?.[1];
+    if (applicationId === undefined) {
+      throw new CliError(
+        "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+        "freee exposed an invalid application No. after submission.",
+        { exitCode: 2 },
+      );
+    }
+    return {
+      applicationId,
+      ...await this.readApprovalDetailSnapshot(),
+      ...await this.readCurrentPersonalApplicationActions(),
+    };
+  }
+
+  private async readCurrentPersonalApplicationActions(
+    id?: string,
+  ): Promise<Pick<BrowserPersonalApplicationDetail, "availableActions">> {
     const withdraw = this.page.getByRole("button", { name: "申請を取り下げる", exact: true });
     if (await withdraw.count() > 1) {
       throw new CliError(
         "BROWSER_PAGE_AMBIGUOUS",
         "freee rendered more than one 申請を取り下げる action.",
-        { details: { id }, exitCode: 2 },
+        { details: id === undefined ? undefined : { id }, exitCode: 2 },
       );
     }
     const availableActions: Array<"withdraw"> = [];
     if (await withdraw.count() === 1 && await withdraw.isVisible() && await withdraw.isEnabled()) {
       availableActions.push("withdraw");
     }
-    const { availableActions: _managerActions, ...personalDetail } = detail;
-    return { ...personalDetail, availableActions };
+    return { availableActions };
   }
 
   private async openApprovals(): Promise<void> {
@@ -2175,9 +2220,11 @@ export class FreeeBrowserClient {
     }
   }
 
-  private async readApprovalDetail(summary: BrowserApprovalSummary): Promise<BrowserApprovalDetail> {
+  private async readApprovalDetailSnapshot(): Promise<
+    Pick<BrowserApprovalDetail, "fields" | "tables" | "detailLines">
+  > {
     this.assertOfficialPage();
-    const snapshot = await this.page.evaluate(() => {
+    return this.page.evaluate(() => {
       const normalize = (value: string) => value.trim().replace(/\s+/g, " ");
       const tables = Array.from(document.querySelectorAll("table"))
         .filter((table) => table.getClientRects().length > 0)
@@ -2212,6 +2259,10 @@ export class FreeeBrowserClient {
         .slice(0, 200);
       return { fields, tables, detailLines };
     });
+  }
+
+  private async readApprovalDetail(summary: BrowserApprovalSummary): Promise<BrowserApprovalDetail> {
+    const snapshot = await this.readApprovalDetailSnapshot();
     const availableActions: BrowserApprovalAction[] = [];
     for (const [action, label] of [
       ["approve", "承認"],

@@ -217,7 +217,7 @@ npm run freee -- approvals commit-action --id APPLICATION_NO \
   --action approve|return --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-Commands emit JSON and identify the selected business backend. Before a real punch, the service rechecks the available action using the same backend. Before an application action, it rereads the complete detail and requires the SHA-256 fingerprint to match the read-only preview. An unavailable action, changed detail, ambiguous page, or missing confirmation stops before an API POST or browser click.
+Commands emit JSON and identify the selected business backend. Before a real punch, the service rechecks the available action using the same backend. Before an application action, it rereads the complete detail and requires the SHA-256 fingerprint to match the read-only preview. An unavailable action, changed detail, ambiguous page, or missing confirmation stops before an API POST or browser click. If a commit returns no complete JSON envelope, treat its result as unknown and never retry the write; use the corresponding read-only status, list, or detail command to verify the exact target.
 
 MCP and CLI writes follow the same safety model. Every real action must start with a prepare tool or command that shows the target, action, content, and fingerprint. A commit is allowed only after the user approves that exact action in a new current message. Development requests, testing, messages such as “continue” or “handle it,” and approval from an earlier message do not count. An unknown write result is never retried automatically.
 
@@ -237,7 +237,7 @@ Monthly writes use the same two-step safety model as other writes. `monthly prep
 
 Call `requests options` before creating an application. With `--date`, it reads the exact leave types configured by the company for that date. Leave and one-segment work-time correction forms are supported; a work-time correction may include one optional break pair. The current test company does not enable `残業`, so the capability result reports overtime as unavailable and this version does not guess or bypass an unverified overtime form.
 
-Creation and withdrawal use separate prepare and commit commands. Prepare fills the official form, verifies the selected date, values, leave type, and approval route, and returns a SHA-256 fingerprint without clicking `申請` or `申請を取り下げる`. Commit reconstructs the same preview, stops on any change, requires explicit current-message approval, clicks once, and verifies one new pending/approved application or the exact withdrawn application in `差戻し`. An unknown result is never retried automatically.
+Creation and withdrawal use separate prepare and commit commands. Prepare fills the official form, verifies the selected date, values, leave type, and approval route, and returns a SHA-256 fingerprint without clicking `申請` or `申請を取り下げる`. Commit reconstructs the same preview, stops on any change, requires explicit current-message approval, clicks once, preserves the resulting detail page, and verifies one new pending/approved application or the exact withdrawn application in `差戻し`. An unknown result is never retried automatically.
 
 ## Employee application handling
 

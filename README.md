@@ -150,6 +150,10 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_personal_application_prepare_withdraw` | Read-only preview | Generate a withdrawal preview and fingerprint for one pending application |
 | `freee_personal_application_commit_withdraw` | Write | Revalidate and withdraw one pending personal application |
 | `freee_approvals_list` | Read-only | List pending, approved, returned, or all applications |
+| `freee_monthly_approvals_list` | Read-only | List only 月次勤怠締め applications from one manager approval page |
+| `freee_monthly_approval_review` | Read-only | Review one monthly application with the applicant's summary, daily attendance, alerts, and automatic checks |
+| `freee_monthly_approval_prepare_action` | Read-only preview | Bind a complete monthly review and approval or return action into a fingerprint |
+| `freee_monthly_approval_commit_action` | Write | Revalidate the complete monthly review and approve or return one application |
 | `freee_approval_detail` | Read-only | Read the full details of one application |
 | `freee_approval_prepare_action` | Read-only preview | Generate an approval or return preview and fingerprint |
 | `freee_approval_commit_action` | Write | Revalidate the fingerprint and approve or return one application |
@@ -228,7 +232,7 @@ MCP and CLI writes follow the same safety model. Every real action must start wi
 
 The API implementation of `team status` is complete and tested, but the `attendance_manager` role used at GCU cannot read employee memberships through the Public API. The API backend returns the permission error and does not fall back to Playwright.
 
-The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, personal application list/detail/leave/work-time-correction/withdraw/approved-application cancellation, department monthly attendance summaries, and employee application list/detail/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, and monthly work totals from the attendance list, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
+The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, personal application list/detail/leave/work-time-correction/withdraw/approved-application cancellation, department monthly attendance summaries, general employee application handling, and dedicated monthly attendance review/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, monthly work totals, and one exact applicant's daily attendance table, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
 
 ## Monthly attendance applications
 
@@ -254,6 +258,14 @@ A single application write has two separate steps:
 2. The agent may call `approvals commit-action ... --confirm` with the same application number, action, and fingerprint only after the user reviews the applicant, type, target date, content, reason, and automatic checks and explicitly requests approval or return in the current message.
 
 Before committing, the CLI rereads the detail. A fingerprint mismatch, missing button, application processed by someone else, or new comment stops the operation and requires a new preview. After the click, the application is reread through the synchronized paginated workflow and must expose the exact expected `承認済` or `差戻し` state. When a self-application leaves the manager history after return, the exact same No. and immutable target fields may instead be verified in the employee history. An application missing from both workflows, or any mismatched target, is reported as unknown and must never be retried automatically. Batch approval is not supported, and development tests never perform real approvals or returns.
+
+## Monthly attendance approval review
+
+`monthly-approvals list` filters one synchronized manager approval page to `月次勤怠締め` applications. Use its `pageCount` to inspect later source pages; `sourceTotalCount` is the complete count before type filtering, while `applicationCount` is the monthly count on the returned page.
+
+`monthly-approvals review --id` first verifies the exact application type and work month, then maps the applicant to one unique visible member in the selected attendance-monitor month. It opens that employee's official attendance page and returns the monthly summary, one uniquely identified daily attendance table, per-day alerts, page warnings, application detail, and consolidated automatic checks. The selected attendance-monitor month must already match the application's work month. A different month, duplicate employee identity, missing attendance link, or changed table schema stops safely instead of returning a partial review.
+
+Use `monthly-approvals prepare-action --id NO --action approve|return` before a monthly manager write. Its fingerprint binds the full application, monthly summary, daily rows, alerts, checks, and requested action. Only a new current-message confirmation of that exact preview permits `monthly-approvals commit-action ... --confirm`. The commit reconstructs the review, reopens the exact application, clicks once, and applies the same post-write verification as the general approval workflow. Batch actions are not supported, and this specialized path remains pending real freee validation.
 
 ## Backend selection
 

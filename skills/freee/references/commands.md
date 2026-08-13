@@ -26,6 +26,10 @@ Prefer these tools for business operations when the host has loaded the installe
 | Personal withdrawal preview | `freee_personal_application_prepare_withdraw` | Read-only; returns fingerprint |
 | Personal withdrawal execution | `freee_personal_application_commit_withdraw` | Real write; exact preview, current-message approval, and `confirm: true` required |
 | Application list | `freee_approvals_list` | Read-only; defaults to pending |
+| Monthly approval list | `freee_monthly_approvals_list` | Read-only; filters one source page to 月次勤怠締め |
+| Monthly approval review | `freee_monthly_approval_review` | Read-only; includes exact member summary, daily attendance, alerts, and checks |
+| Monthly approval/return preview | `freee_monthly_approval_prepare_action` | Read-only; binds the complete monthly review into a fingerprint |
+| Monthly approval/return execution | `freee_monthly_approval_commit_action` | Real write; exact review, current-message approval, and `confirm: true` required |
 | Application detail | `freee_approval_detail` | Read-only |
 | Approval/return preview | `freee_approval_prepare_action` | Read-only; returns fingerprint |
 | Approval/return execution | `freee_approval_commit_action` | Real write; exact preview, current-message approval, and `confirm: true` required |
@@ -59,6 +63,8 @@ npm run freee -- approvals list
 npm run freee -- approvals list --status all
 npm run freee -- approvals list --status approved --page 2
 npm run freee -- approvals detail --id 1234
+npm run freee -- monthly-approvals list --status pending --page 1
+npm run freee -- monthly-approvals review --id 1234
 npm run freee -- clock status --company-id 123
 npm run freee -- clock status --date 2026-08-10
 ```
@@ -104,6 +110,8 @@ npm run freee -- team status --date YYYY-MM-DD
 npm run freee -- approvals list
 npm run freee -- approvals list --status pending|returned|approved|all --page PAGE
 npm run freee -- approvals detail --id APPLICATION_NO
+npm run freee -- monthly-approvals list --status pending|returned|approved|all --page PAGE
+npm run freee -- monthly-approvals review --id APPLICATION_NO
 npm run freee -- monthly status [--period YYYY-MM]
 npm run freee -- requests options [--date YYYY-MM-DD]
 npm run freee -- requests list [--status pending|returned|approved|all] [--page PAGE]
@@ -198,6 +206,32 @@ npm run freee -- requests commit-withdraw \
 Withdrawal reopens and fingerprints the exact detail, clicks `申請を取り下げる` once, and must verify the same application as `差戻し`. Creation must identify exactly one new `申請中`, `未承認`, or `承認済` application. A changed preview stops before the click, and an unknown result is never retried automatically.
 
 `approvals list` explicitly selects the current account's manager-side `承認` tab and defaults to its pending (`未承認`) queue. It never treats the default employee-side `申請` tab as an approval queue. The optional positive `page` defaults to 1. Read `pageCount` and request later pages only when needed; `totalCount` is the complete filter count, while `applicationCount` and `applications` describe the returned page. Each item includes the freee application No., applicant, status, type, target date, content, reason, application date, current approver, and automatic-check summary. The browser binds each read to the matching freee response and rendered row count instead of relying on a fixed delay. `approvals detail` searches all pages for exactly one numeric No. and returns its full visible fields, approval route, department, comment history, automatic-check messages, and currently available actions. These commands are Playwright-only and never fall back to API.
+
+## Manager monthly attendance review and actions
+
+Use the dedicated monthly workflow for `月次勤怠締め` instead of the general action commands:
+
+```bash
+npm run freee -- monthly-approvals list \
+  [--status pending|returned|approved|all] [--page PAGE]
+npm run freee -- monthly-approvals review --id APPLICATION_NO
+npm run freee -- monthly-approvals prepare-action \
+  --id APPLICATION_NO --action approve|return
+```
+
+The list filters each synchronized source approval page to monthly closing applications. Follow `pageCount` when more source pages exist; `sourceTotalCount` is the unfiltered source count, and `applicationCount` is the monthly count on that page.
+
+The review requires the application type to be exactly `月次勤怠締め` or `月次勤怠締め申請` and its target to identify one work month. It maps the applicant and department to one unique visible attendance-monitor member, requires the monitor's selected month to match, opens the official employee attendance link, and parses one unique daily attendance table. It returns the application detail, member monthly summary, every daily row, per-day alerts, page warnings, and consolidated automatic checks. Another month, duplicate member, missing official link, or ambiguous table stops without a write.
+
+The prepare fingerprint binds the entire review and requested action. Only after the current user message explicitly approves that exact preview, commit once:
+
+```bash
+npm run freee -- monthly-approvals commit-action \
+  --id APPLICATION_NO --action approve|return \
+  --fingerprint PREVIEW_SHA256 --confirm
+```
+
+Commit reconstructs the complete review, reopens the exact application, requires unchanged detail and action availability, clicks one `承認` or `申請者へ差し戻す` button, and verifies `承認済` or `差戻し`. Never use the general approval commit to bypass a monthly review failure. Never retry an unknown result. Batch monthly actions are not implemented.
 
 ## Employee application actions
 

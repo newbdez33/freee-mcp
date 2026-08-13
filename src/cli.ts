@@ -260,6 +260,47 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  if (group === "monthly-approvals" && command === "list") {
+    const options = parseApprovalListOptions(rest);
+    printSuccess(
+      "monthly-approvals list",
+      await service.getMonthlyApprovals(options.status, options.page),
+    );
+    return;
+  }
+
+  if (group === "monthly-approvals" && command === "review") {
+    const options = parseApprovalTargetOptions(rest, { allowAction: false, allowCommit: false });
+    printSuccess(
+      "monthly-approvals review",
+      await service.getMonthlyApprovalReview(options.id),
+    );
+    return;
+  }
+
+  if (group === "monthly-approvals" && command === "prepare-action") {
+    const options = parseApprovalTargetOptions(rest, { allowAction: true, allowCommit: false });
+    printSuccess(
+      "monthly-approvals prepare-action",
+      await service.prepareMonthlyApprovalAction(options.id, options.action!),
+    );
+    return;
+  }
+
+  if (group === "monthly-approvals" && command === "commit-action") {
+    const options = parseApprovalTargetOptions(rest, { allowAction: true, allowCommit: true });
+    printSuccess(
+      "monthly-approvals commit-action",
+      await service.commitMonthlyApprovalAction(
+        options.id,
+        options.action!,
+        options.fingerprint!,
+        options.confirm ?? false,
+      ),
+    );
+    return;
+  }
+
   if (group === "approvals" && command === "detail") {
     const options = parseApprovalTargetOptions(rest, { allowAction: false, allowCommit: false });
     printSuccess("approvals detail", await service.getApprovalDetail(options.id));
@@ -984,6 +1025,10 @@ function printHelp(): void {
   process.stdout.write("  freee-agent approvals detail --id NO\n");
   process.stdout.write("  freee-agent approvals prepare-action --id NO --action approve|return\n");
   process.stdout.write("  freee-agent approvals commit-action --id NO --action approve|return --fingerprint SHA256 --confirm\n");
+  process.stdout.write("  freee-agent monthly-approvals list [--status pending|returned|approved|all] [--page N]\n");
+  process.stdout.write("  freee-agent monthly-approvals review --id NO\n");
+  process.stdout.write("  freee-agent monthly-approvals prepare-action --id NO --action approve|return\n");
+  process.stdout.write("  freee-agent monthly-approvals commit-action --id NO --action approve|return --fingerprint SHA256 --confirm\n");
   process.stdout.write("  freee-agent clock in|break-start|break-end|out [--company-id ID] --confirm\n\n");
   process.stdout.write("Real clock entries and application changes are never made without --confirm.\n");
   process.stdout.write("Select a complete backend with FREEE_BACKEND=api|playwright|auto.\n");

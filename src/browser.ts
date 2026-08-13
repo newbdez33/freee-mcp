@@ -27,6 +27,16 @@ import {
   type BrowserMonthlySubmitForm,
 } from "./browser-monthly.js";
 import {
+  collectMonthlyAutomaticChecks,
+  createMonthlyApprovalFingerprint,
+  isMonthlyApproval,
+  parseMonthlyAttendanceTableSnapshot,
+  requireMonthlyApproval,
+  selectMonthlyApprovalMember,
+  type BrowserMonthlyApprovalReview,
+  type MonthlyAttendanceTableSnapshot,
+} from "./browser-monthly-approvals.js";
+import {
   createPersonalApplicationCancelFingerprint,
   createPersonalApplicationCreateFingerprint,
   createPersonalApplicationListFingerprint,
@@ -1050,6 +1060,128 @@ export class FreeeBrowserClient {
     return this.readApprovalDetail(summary);
   }
 
+  async getMonthlyApprovals(
+    status: BrowserApprovalListStatus = "pending",
+    page = 1,
+  ): Promise<{
+    filter: BrowserApprovalListStatus;
+    page: number;
+    pageCount: number;
+    sourceTotalCount: number;
+    applicationCount: number;
+    applications: BrowserApprovalSummary[];
+  }> {
+    const approvals = await this.getApprovals(status, page);
+    const applications = approvals.applications.filter(isMonthlyApproval);
+    return {
+      filter: approvals.filter,
+      page: approvals.page,
+      pageCount: approvals.pageCount,
+      sourceTotalCount: approvals.totalCount,
+      applicationCount: applications.length,
+      applications,
+    };
+  }
+
+  async getMonthlyApprovalReview(id: string): Promise<BrowserMonthlyApprovalReview> {
+    const application = await this.getApprovalDetail(id);
+    const period = requireMonthlyApproval(application);
+    const team = await this.getTeamStatus({ date: `${period}-01` });
+    const attendanceSummary = selectMonthlyApprovalMember(application, team.members);
+    await this.openMonthlyApplicantAttendance(application, attendanceSummary);
+    await this.selectAttendanceTableView();
+    const attendance = parseMonthlyAttendanceTableSnapshot(
+      await this.readMonthlyAttendanceTableSnapshot(),
+      period,
+    );
+    return {
+      application,
+      period,
+      attendanceSummary,
+      attendance,
+      automaticChecks: collectMonthlyAutomaticChecks(application, attendance),
+    };
+  }
+
+  async prepareMonthlyApprovalAction(
+    id: string,
+    action: BrowserApprovalAction,
+  ): Promise<{
+    action: BrowserApprovalAction;
+    fingerprint: string;
+    preview: BrowserMonthlyApprovalReview;
+  }> {
+    const preview = await this.getMonthlyApprovalReview(id);
+    if (!preview.application.availableActions.includes(action)) {
+      throw new CliError(
+        "MONTHLY_APPROVAL_ACTION_UNAVAILABLE",
+        `The requested monthly approval action '${action}' is not currently available in freee.`,
+        {
+          details: {
+            id,
+            action,
+            availableActions: preview.application.availableActions,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    return { action, fingerprint: createMonthlyApprovalFingerprint(preview, action), preview };
+  }
+
+  async commitMonthlyApprovalAction(
+    id: string,
+    action: BrowserApprovalAction,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<{
+    id: string;
+    action: BrowserApprovalAction;
+    verified: true;
+    result: BrowserApprovalDetail;
+  }> {
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This command changes a real monthly attendance application. Review it first, obtain explicit current-message approval, then re-run with its fingerprint and `--confirm`.",
+        { details: { id, action }, exitCode: 2 },
+      );
+    }
+    const review = await this.getMonthlyApprovalReview(id);
+    const currentFingerprint = createMonthlyApprovalFingerprint(review, action);
+    if (fingerprint !== currentFingerprint) {
+      throw new CliError(
+        "MONTHLY_APPROVAL_PREVIEW_CHANGED",
+        "The monthly application, attendance review, automatic checks, or requested action changed after preview. No action was taken; prepare a new preview.",
+        { details: { id, action, currentFingerprint }, exitCode: 2 },
+      );
+    }
+    if (!review.application.availableActions.includes(action)) {
+      throw new CliError(
+        "MONTHLY_APPROVAL_ACTION_UNAVAILABLE",
+        `The requested monthly approval action '${action}' is no longer available in freee.`,
+        {
+          details: {
+            id,
+            action,
+            availableActions: review.application.availableActions,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    const actionDetail = await this.getApprovalDetail(id);
+    requireMonthlyApproval(actionDetail);
+    if (JSON.stringify(actionDetail) !== JSON.stringify(review.application)) {
+      throw new CliError(
+        "MONTHLY_APPROVAL_PREVIEW_CHANGED",
+        "The monthly application changed while returning from attendance review. No action was taken; prepare a new preview.",
+        { details: { id, action }, exitCode: 2 },
+      );
+    }
+    return this.commitOpenApprovalAction(id, action, actionDetail);
+  }
+
   async prepareApprovalAction(id: string, action: BrowserApprovalAction): Promise<{
     action: BrowserApprovalAction;
     fingerprint: string;
@@ -1101,6 +1233,20 @@ export class FreeeBrowserClient {
       );
     }
 
+    return this.commitOpenApprovalAction(id, action, before, fingerprint);
+  }
+
+  private async commitOpenApprovalAction(
+    id: string,
+    action: BrowserApprovalAction,
+    before: BrowserApprovalDetail,
+    originalFingerprint?: string,
+  ): Promise<{
+    id: string;
+    action: BrowserApprovalAction;
+    verified: true;
+    result: BrowserApprovalDetail;
+  }> {
     const label = action === "approve" ? "承認" : "申請者へ差し戻す";
     const button = this.page.getByRole("button", { name: label, exact: true });
     if (await button.count() !== 1 || !await button.isVisible() || !await button.isEnabled()) {
@@ -1155,7 +1301,9 @@ export class FreeeBrowserClient {
         availableActions: [],
       };
     }
-    if (result.availableActions.includes(action) || createApprovalFingerprint(result, action) === fingerprint) {
+    if (result.availableActions.includes(action)
+        || (originalFingerprint !== undefined
+          && createApprovalFingerprint(result, action) === originalFingerprint)) {
       throw new CliError(
         "APPROVAL_ACTION_RESULT_UNKNOWN",
         "freee did not expose a verified changed application state. Read the application again before any further write.",
@@ -1170,6 +1318,143 @@ export class FreeeBrowserClient {
       );
     }
     return { id, action, verified: true, result };
+  }
+
+  private async openMonthlyApplicantAttendance(
+    application: BrowserApprovalDetail,
+    member: BrowserTeamMemberStatus,
+  ): Promise<void> {
+    if (new URL(this.page.url()).pathname !== "/attendance_monitor") {
+      throw new CliError(
+        "MONTHLY_APPROVAL_ATTENDANCE_UNEXPECTED",
+        "The browser was not on the expected attendance monitor before employee review.",
+        { details: { id: application.application.id }, exitCode: 2 },
+      );
+    }
+    const rows = this.page.locator("table tbody tr");
+    const matches: Locator[] = [];
+    for (let index = 0; index < await rows.count(); index += 1) {
+      const row = rows.nth(index);
+      if (!await row.isVisible()) {
+        continue;
+      }
+      const cells = (await row.locator("th, td").allInnerTexts())
+        .map((value) => value.trim().replace(/\s+/g, " "));
+      if (cells.includes(member.name)
+          && (!member.department || cells.includes(member.department))) {
+        matches.push(row);
+      }
+    }
+    if (matches.length !== 1 || !matches[0]) {
+      throw new CliError(
+        "MONTHLY_APPROVAL_MEMBER_AMBIGUOUS",
+        "The monthly applicant did not map to one unique visible attendance row.",
+        {
+          details: {
+            id: application.application.id,
+            applicant: member.name,
+            matchCount: matches.length,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    const links = matches[0].locator("a[href]");
+    const candidates: Locator[] = [];
+    for (let index = 0; index < await links.count(); index += 1) {
+      const link = links.nth(index);
+      const href = await link.getAttribute("href");
+      if (!await link.isVisible() || !href) {
+        continue;
+      }
+      const url = new URL(href, this.page.url());
+      if (isAllowedFreeePageUrl(url.href) && url.pathname === "/attendances") {
+        candidates.push(link);
+      }
+    }
+    if (candidates.length !== 1 || !candidates[0]) {
+      throw new CliError(
+        "MONTHLY_APPROVAL_ATTENDANCE_UNEXPECTED",
+        "The applicant row did not expose one unique official attendance-detail link.",
+        {
+          details: { id: application.application.id, linkCount: candidates.length },
+          exitCode: 2,
+        },
+      );
+    }
+    await candidates[0].click();
+    await this.page.waitForLoadState("domcontentloaded", {
+      timeout: this.config.navigationTimeoutMs,
+    }).catch(() => undefined);
+    await this.settleAttendancePage();
+    if (new URL(this.page.url()).pathname !== "/attendances") {
+      throw new CliError(
+        "BROWSER_NAVIGATION_FAILED",
+        "freee did not open the expected employee attendance page.",
+        { details: { id: application.application.id }, exitCode: 2 },
+      );
+    }
+  }
+
+  private async selectAttendanceTableView(): Promise<void> {
+    const controls = this.page.locator(
+      '[aria-label="テーブル表示"], [aria-label="テーブル"], [title="テーブル表示"], [title="テーブル"], button:has-text("テーブル表示")',
+    );
+    const visible: Locator[] = [];
+    for (let index = 0; index < await controls.count(); index += 1) {
+      const control = controls.nth(index);
+      if (await control.isVisible()) {
+        visible.push(control);
+      }
+    }
+    if (visible.length > 1) {
+      throw new CliError(
+        "MONTHLY_APPROVAL_ATTENDANCE_UNEXPECTED",
+        "The employee attendance page exposed more than one visible table-view control.",
+        { details: { controlCount: visible.length }, exitCode: 2 },
+      );
+    }
+    if (visible.length === 1 && visible[0]) {
+      await visible[0].click();
+      await this.page.waitForTimeout(300);
+    }
+  }
+
+  private async readMonthlyAttendanceTableSnapshot(): Promise<MonthlyAttendanceTableSnapshot> {
+    this.assertOfficialPage();
+    if (new URL(this.page.url()).pathname !== "/attendances") {
+      throw new CliError(
+        "MONTHLY_APPROVAL_ATTENDANCE_UNEXPECTED",
+        "The browser was not on the expected employee attendance page.",
+        { exitCode: 2 },
+      );
+    }
+    return this.page.evaluate(() => {
+      const normalize = (value: string | null | undefined) =>
+        (value ?? "").trim().replace(/\s+/g, " ");
+      const bodyText = document.body?.innerText ?? "";
+      const selectedPeriod = bodyText.match(/[（(]\s*(20\d{2}年\d{1,2}月)\d{1,2}日[〜～-].{0,80}勤務分/)?.[1]
+        ?? bodyText.match(/(20\d{2}年\d{1,2}月)\d{1,2}日[〜～-].{0,80}勤務分/)?.[1]
+        ?? bodyText.match(/(20\d{2}年\d{1,2}月)\s*勤務分/)?.[1]
+        ?? null;
+      const tables = Array.from(document.querySelectorAll("table"))
+        .filter((table) => table.getClientRects().length > 0)
+        .map((table) => ({
+          headers: Array.from(table.querySelectorAll<HTMLElement>("thead th"))
+            .map((cell) => normalize(cell.innerText))
+            .filter((value) => value.length > 0),
+          rows: Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr"))
+            .filter((row) => row.getClientRects().length > 0)
+            .map((row) => Array.from(row.querySelectorAll<HTMLElement>("th, td"))
+              .map((cell) => normalize(cell.innerText))),
+        }));
+      const warnings = Array.from(document.querySelectorAll<HTMLElement>("body *"))
+        .filter((element) => element.getClientRects().length > 0)
+        .map((element) => normalize(element.innerText))
+        .filter((value) => /申請または修正が必要な勤怠が\d+日あります。?/.test(value))
+        .filter((value, index, values) => values.indexOf(value) === index);
+      return { selectedPeriod, tables, warnings };
+    });
   }
 
   private async ensureAuthenticated(): Promise<void> {

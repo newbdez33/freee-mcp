@@ -20,6 +20,7 @@ test("the compiled CLI entry point is runnable without credentials for help", as
   assert.match(result.stdout, /monthly commit-action/);
   assert.match(result.stdout, /requests options/);
   assert.match(result.stdout, /requests prepare-create/);
+  assert.match(result.stdout, /requests prepare-cancel/);
   assert.match(result.stdout, /requests commit-withdraw/);
   assert.match(result.stdout, /approvals prepare-action/);
   assert.match(result.stdout, /approvals commit-action/);

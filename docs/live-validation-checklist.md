@@ -36,6 +36,7 @@ Every item below requires a dedicated test case, a reviewed prepare result, and 
 - [ ] **LV-W06 — Personal work-time correction creation.** Use an agreed test record that will not alter payroll unexpectedly, commit once, and verify exactly one matching application. Prefer returning or withdrawing the request before approval when the test goal is only workflow validation.
 - [x] **LV-W07 — Personal application withdrawal.** While a dedicated test application is still pending, prepare and commit `申請を取り下げる`, then verify the same No. is `差戻し` and no longer exposes `withdraw`. Validated with application No. `10032` on 2026-08-13.
 - [x] **LV-W08 — Manager return action.** Create a dedicated pending test application, prepare `return`, commit once, and verify the same No. becomes `差戻し`. Validated on 2026-08-13 with full-day leave application No. `10035`; the exact employee-side detail and audit comment independently confirmed the returned state without retrying the write.
+- [ ] **LV-W09 — Approved personal application cancellation.** On an approved application that genuinely needs cancellation, prepare the exact `取消申請`, review the original No./status/type/date/content, cancellation reason, route, and fingerprint, then commit once and verify exactly one new cancellation application. Approve that new No. only through a separate manager preview and explicit confirmation, then verify the original leave is cancelled.
 
 ## Priority 1: real read and state variants
 
@@ -50,6 +51,7 @@ These validations are read-only or stop before a business write.
 - [x] **LV-R07 — Team-status date guard.** Read one date inside the selected freee month and verify that a date in another month stops with the documented mismatch instead of silently navigating. Validated on 2026-08-13; the other-month guard returned `BROWSER_DATE_UNSUPPORTED`.
 - [ ] **LV-R08 — Public API team-status success path.** Validate only with a separate account that actually has the required API role, such as `company_admin`. The current account's real permission denial is already confirmed and must not be bypassed.
 - [ ] **LV-R09 — Multiple-company API selection.** With an account that exposes multiple employee identities, verify the unambiguous company path and the `COMPANY_REQUIRED` stop case without creating a punch.
+- [x] **LV-R10 — Approved personal cancellation form.** From an exact approved employee-side detail, verify `cancel` availability, the official `取消申請` route, original No. binding, optional reason field, approval route, and read-only fingerprint generation without submitting. Validated on 2026-08-14 with original application No. `10034`, Playwright backend, and fingerprint prefix `1a6f921f8988`.
 
 ## Priority 2: authentication and distribution reliability
 
@@ -66,7 +68,7 @@ These validations are read-only or stop before a business write.
 These checks may use real read state but must stop before any business click or API write.
 
 - [ ] **LV-S01 — Missing confirmation.** Call each commit family without confirmation and verify it is rejected before browser launch or API write.
-- [ ] **LV-S02 — Stale fingerprint.** For clock, monthly, personal creation/withdrawal, and manager approval/return, change one prepared value or pass a stale fingerprint and verify `*_PREVIEW_CHANGED` with no write.
+- [ ] **LV-S02 — Stale fingerprint.** For clock, monthly, personal creation/cancellation/withdrawal, and manager approval/return, change one prepared value or pass a stale fingerprint and verify `*_PREVIEW_CHANGED` with no write.
 - [ ] **LV-S03 — Backend exclusivity.** Select `api` and `playwright` in separate processes, call a capability belonging only to the other backend, and verify `BACKEND_MISMATCH` without fallback.
 
 Do not deliberately create a network failure after a business click to test unknown-result handling. `*_RESULT_UNKNOWN` remains covered by controlled automated tests because inducing it against production could create an action whose final state cannot be safely determined.

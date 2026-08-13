@@ -28,7 +28,7 @@ export interface BrowserPersonalApplicationOptions {
 
 export interface BrowserPersonalApplicationDetail
   extends Omit<BrowserApprovalDetail, "availableActions"> {
-  availableActions: Array<"withdraw">;
+  availableActions: Array<"withdraw" | "cancel">;
 }
 
 export interface BrowserPersonalApplicationList {
@@ -76,6 +76,28 @@ export interface BrowserPersonalApplicationCreatePreview {
   };
 }
 
+export interface BrowserPersonalApplicationCancelPreview {
+  original: BrowserPersonalApplicationDetail;
+  reason: string;
+  route: string;
+  existingFirstPage: {
+    count: number;
+    fingerprint: string;
+  };
+}
+
+export function normalizePersonalApplicationReason(reason?: string): string {
+  const normalized = reason?.trim() ?? "";
+  if (normalized.length > 1_000) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_REASON",
+      "The personal application reason must not exceed 1000 characters.",
+      { exitCode: 2 },
+    );
+  }
+  return normalized;
+}
+
 export function normalizePersonalApplicationCreateInput(
   input: BrowserPersonalApplicationCreateInput,
 ): NormalizedPersonalApplicationCreateInput {
@@ -87,14 +109,7 @@ export function normalizePersonalApplicationCreateInput(
       { details: { date }, exitCode: 2 },
     );
   }
-  const reason = input.reason?.trim() ?? "";
-  if (reason.length > 1_000) {
-    throw new CliError(
-      "INVALID_PERSONAL_APPLICATION_REASON",
-      "The personal application reason must not exceed 1000 characters.",
-      { exitCode: 2 },
-    );
-  }
+  const reason = normalizePersonalApplicationReason(input.reason);
   const leaveType = normalizeOptional(input.leaveType);
   const leaveStart = normalizeOptional(input.leaveStart);
   const leaveEnd = normalizeOptional(input.leaveEnd);
@@ -224,6 +239,12 @@ export function createPersonalApplicationWithdrawFingerprint(
   preview: BrowserPersonalApplicationDetail,
 ): string {
   return hash({ version: 1, action: "withdraw", preview });
+}
+
+export function createPersonalApplicationCancelFingerprint(
+  preview: BrowserPersonalApplicationCancelPreview,
+): string {
+  return hash({ version: 1, action: "cancel", preview });
 }
 
 export function createPersonalApplicationListFingerprint(ids: string[]): string {

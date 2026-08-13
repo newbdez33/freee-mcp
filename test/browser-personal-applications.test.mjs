@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createPersonalApplicationCancelFingerprint,
   createPersonalApplicationCreateFingerprint,
   createPersonalApplicationWithdrawFingerprint,
   normalizePersonalApplicationCreateInput,
+  normalizePersonalApplicationReason,
 } from "../dist/browser-personal-applications.js";
 
 test("personal leave input requires a real date and exact leave type", () => {
@@ -145,5 +147,22 @@ test("personal application fingerprints bind create and withdrawal previews", ()
       application: { ...detail.application, status: "差戻し" },
       availableActions: [],
     }),
+  );
+
+  const cancellation = {
+    original: {
+      ...detail,
+      application: { ...detail.application, status: "承認済" },
+      availableActions: ["cancel"],
+    },
+    reason: normalizePersonalApplicationReason(" 予定変更 "),
+    route: "勤怠申請",
+    existingFirstPage: { count: 2, fingerprint: "a".repeat(64) },
+  };
+  const cancellationFingerprint = createPersonalApplicationCancelFingerprint(cancellation);
+  assert.match(cancellationFingerprint, /^[a-f0-9]{64}$/);
+  assert.notEqual(
+    cancellationFingerprint,
+    createPersonalApplicationCancelFingerprint({ ...cancellation, reason: "別の理由" }),
   );
 });

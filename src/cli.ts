@@ -218,6 +218,29 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  if (group === "requests" && command === "prepare-cancel") {
+    const options = parsePersonalApplicationCancelOptions(rest, false);
+    printSuccess(
+      "requests prepare-cancel",
+      await service.preparePersonalApplicationCancel(options.id, options.reason),
+    );
+    return;
+  }
+
+  if (group === "requests" && command === "commit-cancel") {
+    const options = parsePersonalApplicationCancelOptions(rest, true);
+    printSuccess(
+      "requests commit-cancel",
+      await service.commitPersonalApplicationCancel(
+        options.id,
+        options.reason,
+        options.fingerprint!,
+        options.confirm ?? false,
+      ),
+    );
+    return;
+  }
+
   if (group === "requests" && command === "commit-withdraw") {
     const options = parsePersonalApplicationTargetOptions(rest, true);
     printSuccess(
@@ -363,6 +386,62 @@ function parsePersonalApplicationTargetOptions(
   }
   return {
     id,
+    ...(typeof fingerprint === "string" ? { fingerprint } : {}),
+    ...(typeof parsed.values.confirm === "boolean" ? { confirm: parsed.values.confirm } : {}),
+  };
+}
+
+function parsePersonalApplicationCancelOptions(
+  args: string[],
+  allowCommit: boolean,
+): { id: string; reason?: string; fingerprint?: string; confirm?: boolean } {
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs({
+      args,
+      options: {
+        id: { type: "string" },
+        reason: { type: "string" },
+        ...(allowCommit ? {
+          fingerprint: { type: "string" as const },
+          confirm: { type: "boolean" as const, default: false },
+        } : {}),
+      },
+      strict: true,
+      allowPositionals: false,
+    });
+  } catch {
+    throw new CliError("INVALID_ARGUMENTS", "Invalid personal application cancellation options.", {
+      exitCode: 2,
+    });
+  }
+  const id = parsed.values.id;
+  if (typeof id !== "string" || !/^\d+$/.test(id)) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_ID",
+      "`--id` must be the numeric freee application No.",
+      { exitCode: 2 },
+    );
+  }
+  const reason = parsed.values.reason;
+  if (reason !== undefined && (typeof reason !== "string" || reason.trim().length > 1_000)) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_REASON",
+      "`--reason` must not exceed 1000 characters.",
+      { exitCode: 2 },
+    );
+  }
+  const fingerprint = parsed.values.fingerprint;
+  if (allowCommit && (typeof fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(fingerprint))) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_FINGERPRINT",
+      "`--fingerprint` must be the 64-character value returned by `requests prepare-cancel`.",
+      { exitCode: 2 },
+    );
+  }
+  return {
+    id,
+    ...(typeof reason === "string" ? { reason } : {}),
     ...(typeof fingerprint === "string" ? { fingerprint } : {}),
     ...(typeof parsed.values.confirm === "boolean" ? { confirm: parsed.values.confirm } : {}),
   };
@@ -897,6 +976,8 @@ function printHelp(): void {
   process.stdout.write("  freee-agent requests detail --id NO\n");
   process.stdout.write("  freee-agent requests prepare-create --kind leave|work-time-correction --date YYYY-MM-DD [fields]\n");
   process.stdout.write("  freee-agent requests commit-create --kind KIND --date YYYY-MM-DD [fields] --fingerprint SHA256 --confirm\n");
+  process.stdout.write("  freee-agent requests prepare-cancel --id NO [--reason REASON]\n");
+  process.stdout.write("  freee-agent requests commit-cancel --id NO [--reason REASON] --fingerprint SHA256 --confirm\n");
   process.stdout.write("  freee-agent requests prepare-withdraw --id NO\n");
   process.stdout.write("  freee-agent requests commit-withdraw --id NO --fingerprint SHA256 --confirm\n");
   process.stdout.write("  freee-agent approvals list [--status pending|returned|approved|all] [--page N]\n");

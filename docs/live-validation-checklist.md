@@ -20,6 +20,10 @@ The following areas already have recorded real-environment evidence and do not n
 - Personal application capability discovery, empty pending/returned filters, approved/all list reads, approved detail reads, and read-only form preparation for full-day leave and one-segment work-time correction with and without one break.
 - Claude Code plugin installation/update through `0.3.3`, MCP discovery, and read-only MCP calls.
 
+Partial validation runs are recorded separately:
+
+- [2026-08-13 Playwright personal-account validation](live-validation-run-2026-08-13.md): automated baseline, Playwright read baseline, missing-confirmation rejection for monthly submission and personal creation, and read-only form/date variants. No freee write was performed.
+
 ## Priority 0: real business-write paths
 
 Every item below requires a dedicated test case, a reviewed prepare result, and explicit confirmation immediately before commit. Never run these as a batch.
@@ -41,9 +45,9 @@ These validations are read-only or stop before a business write.
 - [ ] **LV-R02 — Non-empty personal returned list and detail.** After LV-W07 or LV-W08, verify the `差戻し` filter and exact detail. Current live checks covered only an empty returned list.
 - [ ] **LV-R03 — Personal application pagination beyond page 1.** Validate page 2 when the employee history exceeds one freee page. The current account has only 40 items, so this path is fixture-tested only.
 - [ ] **LV-R04 — Monthly state transitions.** Record `unsubmitted`, `pending`, `approved`, and `returned` reads as those states become naturally available. Do not create artificial payroll state merely to fill the matrix.
-- [ ] **LV-R05 — Half-day and special-leave form variants.** Prepare, but do not submit, each enabled label such as `有休（半休）` and `夏季休暇（有給）`; verify whether freee adds fields that the current generic leave form must capture.
-- [ ] **LV-R06 — Cross-month calendar navigation.** Prepare a leave or correction date outside the initially displayed month and verify the requested date is selected exactly, without submitting.
-- [ ] **LV-R07 — Team-status date guard.** Read one date inside the selected freee month and verify that a date in another month stops with the documented mismatch instead of silently navigating.
+- [x] **LV-R05 — Half-day and special-leave form variants.** Prepare, but do not submit, each enabled label such as `有休（半休）` and `夏季休暇（有給）`; verify whether freee adds fields that the current generic leave form must capture. Validated on 2026-08-13 without submitting.
+- [x] **LV-R06 — Cross-month calendar navigation.** Prepare a leave or correction date outside the initially displayed month and verify the requested date is selected exactly, without submitting. Validated on 2026-08-13 without submitting.
+- [x] **LV-R07 — Team-status date guard.** Read one date inside the selected freee month and verify that a date in another month stops with the documented mismatch instead of silently navigating. Validated on 2026-08-13; the other-month guard returned `BROWSER_DATE_UNSUPPORTED`.
 - [ ] **LV-R08 — Public API team-status success path.** Validate only with a separate account that actually has the required API role, such as `company_admin`. The current account's real permission denial is already confirmed and must not be bypassed.
 - [ ] **LV-R09 — Multiple-company API selection.** With an account that exposes multiple employee identities, verify the unambiguous company path and the `COMPANY_REQUIRED` stop case without creating a punch.
 

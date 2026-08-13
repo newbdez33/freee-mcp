@@ -1,5 +1,5 @@
 import { chmod, mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
 import { chromium, type BrowserContext, type Locator, type Page, type Response } from "playwright";
@@ -96,6 +96,7 @@ export interface PlaywrightRuntimeConfig {
   headless: boolean;
   channel?: string;
   profileDirectory: string;
+  diagnosticDirectory?: string;
   credentialService: string;
   navigationTimeoutMs: number;
   interactionTimeoutMs: number;
@@ -118,13 +119,32 @@ export function readPlaywrightRuntimeConfig(
   const profileDirectory = resolve(
     configuredProfile || join(homedir(), ".freee-agent", "playwright-profile"),
   );
-  assertProfileOutsideRepository(profileDirectory, cwd);
+  assertPrivatePathOutsideRepository(
+    profileDirectory,
+    cwd,
+    "FREEE_BROWSER_PROFILE_DIR",
+    "BROWSER_PROFILE_UNSAFE",
+  );
+  const configuredDiagnosticDirectory = env.FREEE_BROWSER_DIAGNOSTIC_DIR?.trim();
+  const diagnosticDirectory = configuredDiagnosticDirectory
+    ? resolve(configuredDiagnosticDirectory)
+    : undefined;
+  if (diagnosticDirectory) {
+    assertPrivatePathOutsideRepository(
+      diagnosticDirectory,
+      cwd,
+      "FREEE_BROWSER_DIAGNOSTIC_DIR",
+      "BROWSER_DIAGNOSTIC_PATH_UNSAFE",
+    );
+    assertDiagnosticPathIsNotBroad(diagnosticDirectory);
+  }
   return {
     headless: parseBoolean(env.FREEE_BROWSER_HEADLESS, true, "FREEE_BROWSER_HEADLESS"),
     ...(env.FREEE_BROWSER_CHANNEL?.trim() === ""
       ? {}
       : { channel: env.FREEE_BROWSER_CHANNEL?.trim() || "chrome" }),
     profileDirectory,
+    ...(diagnosticDirectory ? { diagnosticDirectory } : {}),
     credentialService: env.FREEE_WEB_CREDENTIAL_SERVICE?.trim() || "freee-agent-web",
     navigationTimeoutMs: parseTimeout(
       env.FREEE_BROWSER_TIMEOUT_MS,
@@ -168,6 +188,7 @@ async function deriveHeadlessChromeUserAgent(channel?: string): Promise<string> 
 
 export class FreeeBrowserClient {
   private preparedPersonalApplicationFirstPageIds: string[] = [];
+  private diagnosticScreenshotSequence = 0;
 
   private constructor(
     private readonly context: BrowserContext,
@@ -181,6 +202,9 @@ export class FreeeBrowserClient {
     credentials: WebCredentialProvider = new SystemWebCredentialStore(config.credentialService),
   ): Promise<FreeeBrowserClient> {
     await prepareProfileDirectory(config.profileDirectory);
+    if (config.diagnosticDirectory) {
+      await prepareDiagnosticDirectory(config.diagnosticDirectory);
+    }
     try {
       const userAgent = config.headless
         ? await deriveHeadlessChromeUserAgent(config.channel)
@@ -688,10 +712,12 @@ export class FreeeBrowserClient {
         { exitCode: 2 },
       );
     }
+    await this.captureDiagnosticScreenshot("personal-application-before-submit");
     try {
       await submit.click({ timeout: this.config.navigationTimeoutMs });
       await this.page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
       await this.page.waitForTimeout(1_000);
+      await this.captureDiagnosticScreenshot("personal-application-after-submit-click");
     } catch {
       throw new CliError(
         "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
@@ -701,13 +727,18 @@ export class FreeeBrowserClient {
     }
     let result: BrowserPersonalApplicationDetail;
     try {
+      const { applicationId, ...currentDetail } =
+        await this.readCurrentPersonalApplicationDetailSnapshot();
       const after = await this.getPersonalApplications("all", 1);
+      await this.captureDiagnosticScreenshot("personal-application-after-submit-list");
       const existingIds = new Set(this.preparedPersonalApplicationFirstPageIds);
       const created = after.applications.filter((application) => !existingIds.has(application.id));
-      if (created.length !== 1) {
-        throw new Error(`expected one new application, found ${created.length}`);
+      if (created.length !== 1 || created[0]!.id !== applicationId) {
+        throw new Error(
+          `expected detail ${applicationId} to be the one new application, found ${created.length}`,
+        );
       }
-      result = await this.getPersonalApplicationDetail(created[0]!.id);
+      result = { application: created[0]!, ...currentDetail };
     } catch {
       throw new CliError(
         "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
@@ -918,20 +949,40 @@ export class FreeeBrowserClient {
         { details: { id, action }, exitCode: 2 },
       );
     }
+    const expectedStatus = action === "approve" ? "承認済" : "差戻し";
     let result: BrowserApprovalDetail;
     try {
       result = await this.getApprovalDetail(id);
     } catch (error) {
-      if (error instanceof CliError && error.code === "APPROVAL_NOT_FOUND") {
+      if (!(error instanceof CliError && error.code === "APPROVAL_NOT_FOUND")) {
+        throw error;
+      }
+      let personalResult: BrowserPersonalApplicationDetail;
+      try {
+        personalResult = await this.getPersonalApplicationDetail(id);
+      } catch {
         throw new CliError(
           "APPROVAL_ACTION_RESULT_UNKNOWN",
-          "The application left the visible approval queue after the click, but freee did not expose a verifiable final state. Do not retry; inspect the application in freee before any further write.",
+          "The application left the manager workflow after the click, but freee did not expose the exact application in the employee workflow. Do not retry; inspect the application in freee before any further write.",
           { details: { id, action }, exitCode: 2 },
         );
       }
-      throw error;
+      if (!isSameApprovalTarget(before.application, personalResult.application)) {
+        throw new CliError(
+          "APPROVAL_ACTION_RESULT_UNKNOWN",
+          "The employee workflow exposed a different application after the manager action. Do not retry; inspect the application in freee before any further write.",
+          { details: { id, action }, exitCode: 2 },
+        );
+      }
+      result = {
+        ...personalResult,
+        application: {
+          ...personalResult.application,
+          applicant: before.application.applicant,
+        },
+        availableActions: [],
+      };
     }
-    const expectedStatus = action === "approve" ? "承認済" : "差戻し";
     if (result.availableActions.includes(action) || createApprovalFingerprint(result, action) === fingerprint) {
       throw new CliError(
         "APPROVAL_ACTION_RESULT_UNKNOWN",
@@ -1342,6 +1393,7 @@ export class FreeeBrowserClient {
     application: NormalizedPersonalApplicationCreateInput,
   ): Promise<string> {
     await this.selectApplicationDate("#approval-request-fields-date", application.date);
+    await this.captureDiagnosticScreenshot("personal-application-date-selected");
     const leaveTypes = await this.readLeaveTypes();
     if (!application.leaveType || !leaveTypes.includes(application.leaveType)) {
       throw new CliError(
@@ -1367,7 +1419,65 @@ export class FreeeBrowserClient {
         { exitCode: 2 },
       );
     }
+    await this.captureDiagnosticScreenshot("personal-application-leave-type-selected");
+    const leaveTypeRow = leaveType.locator("xpath=ancestor::tr[1]");
+    const leaveTimeInputs = leaveTypeRow.locator("input:visible");
+    const leaveTimeInputCount = await leaveTimeInputs.count();
+    if (leaveTimeInputCount === 0) {
+      if (application.leaveStart || application.leaveEnd) {
+        throw new CliError(
+          "PERSONAL_APPLICATION_LEAVE_TIME_UNAVAILABLE",
+          "The selected freee leave type does not expose a leave time range.",
+          { details: { leaveType: application.leaveType }, exitCode: 2 },
+        );
+      }
+    } else {
+      if (leaveTimeInputCount !== 2) {
+        throw new CliError(
+          "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+          "The selected freee leave type exposed an ambiguous leave time range.",
+          {
+            details: { leaveType: application.leaveType, leaveTimeInputCount },
+            exitCode: 2,
+          },
+        );
+      }
+      if (!application.leaveStart || !application.leaveEnd) {
+        throw new CliError(
+          "PERSONAL_APPLICATION_LEAVE_TIME_REQUIRED",
+          "The selected freee leave type requires an explicit leave_start and leave_end.",
+          { details: { leaveType: application.leaveType }, exitCode: 2 },
+        );
+      }
+      for (const [index, expected] of [application.leaveStart, application.leaveEnd].entries()) {
+        const input = leaveTimeInputs.nth(index);
+        if (!await input.isVisible() || !await input.isEnabled()) {
+          throw new CliError(
+            "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+            "The selected freee leave type did not expose two enabled leave time inputs.",
+            { details: { leaveType: application.leaveType }, exitCode: 2 },
+          );
+        }
+        await input.fill(expected);
+        await input.press("Tab");
+        if (await input.inputValue() !== expected) {
+          throw new CliError(
+            "PERSONAL_APPLICATION_LEAVE_TIME_UNAVAILABLE",
+            "freee did not retain the requested leave time range.",
+            {
+              details: {
+                leaveType: application.leaveType,
+                leaveStart: application.leaveStart,
+                leaveEnd: application.leaveEnd,
+              },
+              exitCode: 2,
+            },
+          );
+        }
+      }
+    }
     await this.page.locator('[data-testid="申請理由"]').fill(application.reason);
+    await this.captureDiagnosticScreenshot("personal-application-fields-complete");
     return this.readPersonalApplicationRoute();
   }
 
@@ -1508,6 +1618,25 @@ export class FreeeBrowserClient {
       );
     }
     return value;
+  }
+
+  private async captureDiagnosticScreenshot(label: string): Promise<void> {
+    if (!this.config.diagnosticDirectory) {
+      return;
+    }
+    this.diagnosticScreenshotSequence += 1;
+    const sequence = String(this.diagnosticScreenshotSequence).padStart(2, "0");
+    const screenshotPath = join(this.config.diagnosticDirectory, `${sequence}-${label}.png`);
+    try {
+      await this.page.screenshot({ path: screenshotPath, fullPage: true, animations: "disabled" });
+      await chmod(screenshotPath, 0o600);
+    } catch {
+      throw new CliError(
+        "BROWSER_DIAGNOSTIC_CAPTURE_FAILED",
+        "The explicitly requested private Playwright diagnostic screenshot could not be saved. The current operation stopped.",
+        { details: { label }, exitCode: 2 },
+      );
+    }
   }
 
   private async findEmployeeMonthlyApplication(period: string): Promise<BrowserApprovalSummary> {
@@ -1718,20 +1847,61 @@ export class FreeeBrowserClient {
 
   private async openPersonalApplicationDetail(id: string): Promise<BrowserPersonalApplicationDetail> {
     const detail = await this.openEmployeeApplicationDetail(id);
+    const currentDetail = await this.readCurrentPersonalApplicationActions(id);
+    const { availableActions: _managerActions, ...personalDetail } = detail;
+    return { ...personalDetail, ...currentDetail };
+  }
+
+  private async readCurrentPersonalApplicationDetailSnapshot(): Promise<
+    Omit<BrowserPersonalApplicationDetail, "application"> & { applicationId: string }
+  > {
+    const back = this.page.getByText("一覧に戻る", { exact: true });
+    if (await back.count() !== 1 || !await back.isVisible()) {
+      throw new CliError(
+        "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+        "freee did not expose one unambiguous personal application detail after submission.",
+        { exitCode: 2 },
+      );
+    }
+    const applicationNumber = this.page.getByText(/^No\.\s*\d+$/, { exact: true });
+    if (await applicationNumber.count() !== 1 || !await applicationNumber.isVisible()) {
+      throw new CliError(
+        "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+        "freee did not expose one unambiguous application No. after submission.",
+        { exitCode: 2 },
+      );
+    }
+    const applicationId = /^No\.\s*(\d+)$/.exec((await applicationNumber.innerText()).trim())?.[1];
+    if (applicationId === undefined) {
+      throw new CliError(
+        "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+        "freee exposed an invalid application No. after submission.",
+        { exitCode: 2 },
+      );
+    }
+    return {
+      applicationId,
+      ...await this.readApprovalDetailSnapshot(),
+      ...await this.readCurrentPersonalApplicationActions(),
+    };
+  }
+
+  private async readCurrentPersonalApplicationActions(
+    id?: string,
+  ): Promise<Pick<BrowserPersonalApplicationDetail, "availableActions">> {
     const withdraw = this.page.getByRole("button", { name: "申請を取り下げる", exact: true });
     if (await withdraw.count() > 1) {
       throw new CliError(
         "BROWSER_PAGE_AMBIGUOUS",
         "freee rendered more than one 申請を取り下げる action.",
-        { details: { id }, exitCode: 2 },
+        { details: id === undefined ? undefined : { id }, exitCode: 2 },
       );
     }
     const availableActions: Array<"withdraw"> = [];
     if (await withdraw.count() === 1 && await withdraw.isVisible() && await withdraw.isEnabled()) {
       availableActions.push("withdraw");
     }
-    const { availableActions: _managerActions, ...personalDetail } = detail;
-    return { ...personalDetail, availableActions };
+    return { availableActions };
   }
 
   private async openApprovals(): Promise<void> {
@@ -2059,20 +2229,25 @@ export class FreeeBrowserClient {
       );
     }
     await matches[0]!.click();
-    await this.page.waitForTimeout(500);
     const back = this.page.getByText("一覧に戻る", { exact: true });
+    await back.waitFor({ state: "visible", timeout: this.config.navigationTimeoutMs })
+      .catch(() => undefined);
     if (await back.count() !== 1 || !await back.isVisible()) {
       throw new CliError(
         "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
         "freee did not open one unambiguous application detail view.",
-        { details: { id }, exitCode: 2 },
+        { details: { id, page: safePageLocation(this.page.url()) }, exitCode: 2 },
       );
     }
+    await this.page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+    await this.page.waitForTimeout(250);
   }
 
-  private async readApprovalDetail(summary: BrowserApprovalSummary): Promise<BrowserApprovalDetail> {
+  private async readApprovalDetailSnapshot(): Promise<
+    Pick<BrowserApprovalDetail, "fields" | "tables" | "detailLines">
+  > {
     this.assertOfficialPage();
-    const snapshot = await this.page.evaluate(() => {
+    return this.page.evaluate(() => {
       const normalize = (value: string) => value.trim().replace(/\s+/g, " ");
       const tables = Array.from(document.querySelectorAll("table"))
         .filter((table) => table.getClientRects().length > 0)
@@ -2107,6 +2282,10 @@ export class FreeeBrowserClient {
         .slice(0, 200);
       return { fields, tables, detailLines };
     });
+  }
+
+  private async readApprovalDetail(summary: BrowserApprovalSummary): Promise<BrowserApprovalDetail> {
+    const snapshot = await this.readApprovalDetailSnapshot();
     const availableActions: BrowserApprovalAction[] = [];
     for (const [action, label] of [
       ["approve", "承認"],
@@ -2377,6 +2556,18 @@ export class FreeeBrowserClient {
   }
 }
 
+function isSameApprovalTarget(
+  before: BrowserApprovalSummary,
+  after: BrowserApprovalSummary,
+): boolean {
+  return before.id === after.id
+    && before.type === after.type
+    && before.targetDate === after.targetDate
+    && before.content === after.content
+    && before.reason === after.reason
+    && before.appliedAt === after.appliedAt;
+}
+
 async function prepareProfileDirectory(profileDirectory: string): Promise<void> {
   try {
     await mkdir(profileDirectory, { recursive: true, mode: 0o700 });
@@ -2390,12 +2581,47 @@ async function prepareProfileDirectory(profileDirectory: string): Promise<void> 
   }
 }
 
-function assertProfileOutsideRepository(profileDirectory: string, cwd: string): void {
-  const pathFromRepository = relative(resolve(cwd), profileDirectory);
+async function prepareDiagnosticDirectory(diagnosticDirectory: string): Promise<void> {
+  try {
+    await mkdir(diagnosticDirectory, { recursive: true, mode: 0o700 });
+    await chmod(diagnosticDirectory, 0o700);
+  } catch {
+    throw new CliError(
+      "BROWSER_DIAGNOSTIC_DIRECTORY_UNAVAILABLE",
+      "The private Playwright diagnostic screenshot directory could not be prepared.",
+      { exitCode: 2 },
+    );
+  }
+}
+
+function assertPrivatePathOutsideRepository(
+  privatePath: string,
+  cwd: string,
+  settingName: string,
+  errorCode: string,
+): void {
+  const pathFromRepository = relative(resolve(cwd), privatePath);
   if (pathFromRepository === "" || (!pathFromRepository.startsWith("..") && !isAbsolute(pathFromRepository))) {
     throw new CliError(
-      "BROWSER_PROFILE_UNSAFE",
-      "FREEE_BROWSER_PROFILE_DIR must be outside the repository.",
+      errorCode,
+      `${settingName} must be outside the repository.`,
+      { exitCode: 2 },
+    );
+  }
+}
+
+function assertDiagnosticPathIsNotBroad(diagnosticDirectory: string): void {
+  const broadPaths = new Set([
+    resolve("/"),
+    resolve(homedir()),
+    resolve(tmpdir()),
+    resolve("/tmp"),
+    resolve("/var/tmp"),
+  ]);
+  if (broadPaths.has(resolve(diagnosticDirectory))) {
+    throw new CliError(
+      "BROWSER_DIAGNOSTIC_PATH_UNSAFE",
+      "FREEE_BROWSER_DIAGNOSTIC_DIR must be a dedicated subdirectory, not a filesystem root, home directory, or shared temporary root.",
       { exitCode: 2 },
     );
   }

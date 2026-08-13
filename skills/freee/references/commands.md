@@ -158,7 +158,8 @@ Prepare leave creation without submitting:
 ```bash
 npm run freee -- requests prepare-create \
   --kind leave --date YYYY-MM-DD \
-  --leave-type "EXACT_LABEL_FROM_OPTIONS" [--reason "REASON"]
+  --leave-type "EXACT_LABEL_FROM_OPTIONS" \
+  [--leave-start HH:MM --leave-end HH:MM] [--reason "REASON"]
 ```
 
 Prepare one-segment work-time correction without submitting:
@@ -170,7 +171,7 @@ npm run freee -- requests prepare-create \
   [--break-start HH:MM --break-end HH:MM] [--reason "REASON"]
 ```
 
-The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. Only after the current user message approves that exact preview, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`.
+The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. When the selected leave type exposes a time range, both `--leave-start` and `--leave-end` are required and are bound into the preview; default `00:00` values are never accepted. Only after the current user message approves that exact preview, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`.
 
 Prepare and commit a withdrawal separately:
 
@@ -203,7 +204,7 @@ npm run freee -- approvals commit-action \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-The CLI reopens the application and recomputes the fingerprint before locating one exact visible, enabled freee button. Any changed detail, new comment, changed availability, missing confirmation, or ambiguous control stops before the click. A post-click state is read again across the synchronized paginated workflow and must match `承認済` for approve or `差戻し` for return. A missing or different state is reported as unknown and must be inspected before any further write. Never retry an unknown result. `return` maps to freee's `申請者へ差し戻す`; do not describe it as an irreversible rejection. Batch approval is not implemented.
+The CLI reopens the application and recomputes the fingerprint before locating one exact visible, enabled freee button. Any changed detail, new comment, changed availability, missing confirmation, or ambiguous control stops before the click. A post-click state is read again across the synchronized paginated workflow and must match `承認済` for approve or `差戻し` for return. If a self-application leaves the manager history after return, the exact employee-side No., type, target date, content, reason, and application date may verify the final state. Absence from both workflows, a different target, or a different state is reported as unknown and must be inspected before any further write. Never retry an unknown result. `return` maps to freee's `申請者へ差し戻す`; do not describe it as an irreversible rejection. Batch approval is not implemented.
 
 `auth client` reports only a short SHA-256 fingerprint of the configured Client ID plus the callback URL. Use it to match a configured credential to a freee developer app without printing the Client ID or Client Secret.
 
@@ -280,6 +281,8 @@ Errors are emitted on stderr and return a non-zero exit code:
   }
 }
 ```
+
+If neither stream contains one complete JSON envelope, handle the command as a transport failure. A read-only command may be retried once. After any commit command, do not repeat the write: use the corresponding read-only status, list, or detail command to verify the exact prepared target. Only report a recovered success when one unique record matches the expected identifier or period, action, content, and resulting state. If that cannot be proven, report the result as unknown and ask the user to inspect freee.
 
 Important error codes:
 

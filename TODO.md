@@ -90,6 +90,11 @@
 - [x] 增加显式 GitHub Release 工作流：校验版本、创建标签、生成 Release notes，并附加包与校验和
 - [ ] 补充管理员操作权限矩阵与 API 覆盖清单
 
+## 真实环境待验收
+
+- [ ] 按 [`docs/live-validation-checklist.md`](docs/live-validation-checklist.md) 逐项完成已实现功能的真实 freee / 真实 Agent 验收；每次只执行一个经过 prepare 和当次明确确认的写操作
+- [ ] 验收完成后仅记录版本、后端、对象编号/期间、指纹前 12 位和最终状态，不保存凭据、Cookie、员工表格或截图
+
 ## 安全规则
 
 - 不向日志、终端错误、测试快照或 Git 文件输出任何 Token / Secret

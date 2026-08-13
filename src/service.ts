@@ -11,6 +11,10 @@ import type {
   BrowserApprovalListStatus,
 } from "./browser-approvals.js";
 import type { BrowserMonthlyAction } from "./browser-monthly.js";
+import type {
+  BrowserPersonalApplicationCreateInput,
+  BrowserPersonalApplicationListStatus,
+} from "./browser-personal-applications.js";
 import { FreeeBrowserClient } from "./browser.js";
 import { createClockActionFingerprint } from "./clock-preview.js";
 import { FreeeClient } from "./client.js";
@@ -52,6 +56,26 @@ export interface FreeeOperations {
     fingerprint: string,
     confirm: boolean,
     period?: string,
+  ): Promise<Record<string, unknown>>;
+  getPersonalApplicationOptions(date?: string): Promise<Record<string, unknown>>;
+  getPersonalApplications(
+    status?: BrowserPersonalApplicationListStatus,
+    page?: number,
+  ): Promise<Record<string, unknown>>;
+  getPersonalApplicationDetail(id: string): Promise<Record<string, unknown>>;
+  preparePersonalApplicationCreate(
+    input: BrowserPersonalApplicationCreateInput,
+  ): Promise<Record<string, unknown>>;
+  commitPersonalApplicationCreate(
+    input: BrowserPersonalApplicationCreateInput,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<Record<string, unknown>>;
+  preparePersonalApplicationWithdraw(id: string): Promise<Record<string, unknown>>;
+  commitPersonalApplicationWithdraw(
+    id: string,
+    fingerprint: string,
+    confirm: boolean,
   ): Promise<Record<string, unknown>>;
   getApprovals(status?: BrowserApprovalListStatus, page?: number): Promise<Record<string, unknown>>;
   getApprovalDetail(id: string): Promise<Record<string, unknown>>;
@@ -295,6 +319,97 @@ export class FreeeService implements FreeeOperations {
       backend: this.backend,
       ...asRecord(await this.withBrowser(
         (client) => client.commitMonthlyAction(action, fingerprint, confirm, period),
+      )),
+    };
+  }
+
+  async getPersonalApplicationOptions(date?: string): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Personal application workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser((client) => client.getPersonalApplicationOptions(date))),
+    };
+  }
+
+  async getPersonalApplications(
+    status: BrowserPersonalApplicationListStatus = "pending",
+    page = 1,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Personal application workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser((client) => client.getPersonalApplications(status, page))),
+    };
+  }
+
+  async getPersonalApplicationDetail(id: string): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Personal application workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser((client) => client.getPersonalApplicationDetail(id))),
+    };
+  }
+
+  async preparePersonalApplicationCreate(
+    input: BrowserPersonalApplicationCreateInput,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Personal application workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser(
+        (client) => client.preparePersonalApplicationCreate(input),
+      )),
+    };
+  }
+
+  async commitPersonalApplicationCreate(
+    input: BrowserPersonalApplicationCreateInput,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Personal application workflow");
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This tool creates a real personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        { details: { kind: input.kind, date: input.date }, exitCode: 2 },
+      );
+    }
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser(
+        (client) => client.commitPersonalApplicationCreate(input, fingerprint, confirm),
+      )),
+    };
+  }
+
+  async preparePersonalApplicationWithdraw(id: string): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Personal application workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser(
+        (client) => client.preparePersonalApplicationWithdraw(id),
+      )),
+    };
+  }
+
+  async commitPersonalApplicationWithdraw(
+    id: string,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Personal application workflow");
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This tool withdraws a real personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser(
+        (client) => client.commitPersonalApplicationWithdraw(id, fingerprint, confirm),
       )),
     };
   }

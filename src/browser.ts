@@ -26,6 +26,21 @@ import {
   type BrowserMonthlySubmitForm,
 } from "./browser-monthly.js";
 import {
+  createPersonalApplicationCreateFingerprint,
+  createPersonalApplicationListFingerprint,
+  createPersonalApplicationWithdrawFingerprint,
+  normalizePersonalApplicationCreateInput,
+  type BrowserPersonalApplicationCapability,
+  type BrowserPersonalApplicationCreateInput,
+  type BrowserPersonalApplicationCreatePreview,
+  type BrowserPersonalApplicationDetail,
+  type BrowserPersonalApplicationKind,
+  type BrowserPersonalApplicationList,
+  type BrowserPersonalApplicationListStatus,
+  type BrowserPersonalApplicationOptions,
+  type NormalizedPersonalApplicationCreateInput,
+} from "./browser-personal-applications.js";
+import {
   parseAttendanceMonitorSnapshot,
   type BrowserTeamMemberStatus,
 } from "./browser-team.js";
@@ -58,6 +73,23 @@ const approvalApiStatuses: Record<BrowserApprovalListStatus, string> = {
   returned: "feedback",
   approved: "approved",
   all: "all",
+};
+const personalApplicationFilterLabels: Record<BrowserPersonalApplicationListStatus, string> = {
+  pending: "申請中",
+  returned: "差戻し",
+  approved: "承認済",
+  all: "全て",
+};
+const personalApplicationApiStatuses: Record<BrowserPersonalApplicationListStatus, string> = {
+  pending: "in_progress",
+  returned: "draft_and_feedback",
+  approved: "approved",
+  all: "all",
+};
+const personalApplicationTypeLabels: Record<BrowserPersonalApplicationKind, string> = {
+  leave: "休暇",
+  overtime: "残業",
+  "work-time-correction": "勤務時間修正",
 };
 
 export interface PlaywrightRuntimeConfig {
@@ -135,6 +167,8 @@ async function deriveHeadlessChromeUserAgent(channel?: string): Promise<string> 
 }
 
 export class FreeeBrowserClient {
+  private preparedPersonalApplicationFirstPageIds: string[] = [];
+
   private constructor(
     private readonly context: BrowserContext,
     private page: Page,
@@ -495,6 +529,285 @@ export class FreeeBrowserClient {
       );
     }
     return { action, period: result.period, verified: true, result };
+  }
+
+  async getPersonalApplicationOptions(date?: string): Promise<BrowserPersonalApplicationOptions> {
+    if (date !== undefined) {
+      normalizePersonalApplicationCreateInput({
+        kind: "leave",
+        date,
+        leaveType: "placeholder",
+      });
+    }
+    await this.ensureAuthenticated();
+    const applicationTypes = await this.openPersonalApplicationCreateChooser();
+    let leaveTypes: string[] | null = null;
+    if (date !== undefined) {
+      const leave = applicationTypes.find((capability) => capability.kind === "leave");
+      if (!leave?.available) {
+        throw new CliError(
+          "PERSONAL_APPLICATION_TYPE_UNAVAILABLE",
+          "The current freee company does not enable leave applications for this employee.",
+          { details: { kind: "leave" }, exitCode: 2 },
+        );
+      }
+      await this.openPersonalApplicationForm("leave");
+      await this.selectApplicationDate("#approval-request-fields-date", date);
+      leaveTypes = await this.readLeaveTypes();
+    }
+    return {
+      applicationTypes,
+      leaveTypes,
+      leaveTypesDate: date ?? null,
+    };
+  }
+
+  async getPersonalApplications(
+    status: BrowserPersonalApplicationListStatus = "pending",
+    page = 1,
+  ): Promise<BrowserPersonalApplicationList> {
+    if (!Number.isInteger(page) || page <= 0) {
+      throw new CliError(
+        "INVALID_PERSONAL_APPLICATION_PAGE",
+        "The personal application page must be a positive integer.",
+        { details: { page }, exitCode: 2 },
+      );
+    }
+    await this.ensureAuthenticated();
+    await this.openEmployeeApplications();
+    let pageInfo = await this.selectEmployeeApplicationFilter(status);
+    pageInfo = await this.selectEmployeeApplicationPage(status, page, pageInfo);
+    const parsed = parseApprovalListSnapshot(await this.readApprovalListSnapshot());
+    return {
+      filter: status,
+      page: pageInfo.page,
+      pageCount: pageInfo.pageCount,
+      totalCount: pageInfo.totalCount,
+      applicationCount: parsed.applications.length,
+      applications: parsed.applications,
+    };
+  }
+
+  async getPersonalApplicationDetail(id: string): Promise<BrowserPersonalApplicationDetail> {
+    await this.ensureAuthenticated();
+    return this.openPersonalApplicationDetail(id);
+  }
+
+  async preparePersonalApplicationCreate(
+    rawInput: BrowserPersonalApplicationCreateInput,
+  ): Promise<{
+    action: "create";
+    fingerprint: string;
+    preview: BrowserPersonalApplicationCreatePreview;
+  }> {
+    const application = normalizePersonalApplicationCreateInput(rawInput);
+    const existing = await this.getPersonalApplications("all", 1);
+    const applicationTypes = await this.openPersonalApplicationCreateChooser();
+    const capability = applicationTypes.find((candidate) => candidate.kind === application.kind);
+    if (!capability?.available) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_TYPE_UNAVAILABLE",
+        `The current freee company does not enable '${personalApplicationTypeLabels[application.kind]}' applications for this employee.`,
+        { details: { kind: application.kind, applicationTypes }, exitCode: 2 },
+      );
+    }
+    if (!capability.supported) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_TYPE_UNSUPPORTED",
+        `The '${personalApplicationTypeLabels[application.kind]}' form is visible in freee but is not yet supported safely by this MCP version.`,
+        { details: { kind: application.kind }, exitCode: 2 },
+      );
+    }
+    await this.openPersonalApplicationForm(application.kind);
+    const route = application.kind === "leave"
+      ? await this.fillLeaveApplicationForm(application)
+      : await this.fillWorkTimeCorrectionForm(application);
+    const submit = this.page.getByRole("button", { name: "申請", exact: true });
+    if (await submit.count() !== 1 || !await submit.isVisible() || !await submit.isEnabled()) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "The freee personal application form did not expose one enabled final submission button.",
+        { details: { kind: application.kind, date: application.date }, exitCode: 2 },
+      );
+    }
+    const preview: BrowserPersonalApplicationCreatePreview = {
+      application,
+      typeLabel: personalApplicationTypeLabels[application.kind],
+      route,
+      existingFirstPage: {
+        count: existing.applications.length,
+        fingerprint: createPersonalApplicationListFingerprint(
+          existing.applications.map((item) => item.id),
+        ),
+      },
+    };
+    this.preparedPersonalApplicationFirstPageIds = existing.applications.map((item) => item.id);
+    return {
+      action: "create",
+      fingerprint: createPersonalApplicationCreateFingerprint(preview),
+      preview,
+    };
+  }
+
+  async commitPersonalApplicationCreate(
+    input: BrowserPersonalApplicationCreateInput,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<{
+    action: "create";
+    verified: true;
+    result: BrowserPersonalApplicationDetail;
+  }> {
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This command creates a real personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with its fingerprint and `--confirm`.",
+        { details: { kind: input.kind, date: input.date }, exitCode: 2 },
+      );
+    }
+    const prepared = await this.preparePersonalApplicationCreate(input);
+    if (prepared.fingerprint !== fingerprint) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_PREVIEW_CHANGED",
+        "The personal application form, route, or recent application list changed after preview. No action was taken; prepare a new preview.",
+        {
+          details: {
+            kind: prepared.preview.application.kind,
+            date: prepared.preview.application.date,
+            currentFingerprint: prepared.fingerprint,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    const submit = this.page.getByRole("button", { name: "申請", exact: true });
+    if (await submit.count() !== 1 || !await submit.isVisible() || !await submit.isEnabled()) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_UNAVAILABLE",
+        "The final personal application submission button became unavailable. No action was taken.",
+        { exitCode: 2 },
+      );
+    }
+    try {
+      await submit.click({ timeout: this.config.navigationTimeoutMs });
+      await this.page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+      await this.page.waitForTimeout(1_000);
+    } catch {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        "The freee personal application interaction did not complete cleanly. Do not retry; inspect the personal application list before any further write.",
+        { details: { action: "create" }, exitCode: 2 },
+      );
+    }
+    let result: BrowserPersonalApplicationDetail;
+    try {
+      const after = await this.getPersonalApplications("all", 1);
+      const existingIds = new Set(this.preparedPersonalApplicationFirstPageIds);
+      const created = after.applications.filter((application) => !existingIds.has(application.id));
+      if (created.length !== 1) {
+        throw new Error(`expected one new application, found ${created.length}`);
+      }
+      result = await this.getPersonalApplicationDetail(created[0]!.id);
+    } catch {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        "freee did not expose exactly one verifiable new personal application after the click. Do not retry; inspect the personal application list before any further write.",
+        { details: { action: "create" }, exitCode: 2 },
+      );
+    }
+    if (result.application.status !== "申請中" && result.application.status !== "未承認"
+        && result.application.status !== "承認済") {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        `freee returned personal application status '${result.application.status}' after creation. Do not retry; inspect the application before any further write.`,
+        { details: { id: result.application.id, status: result.application.status }, exitCode: 2 },
+      );
+    }
+    return { action: "create", verified: true, result };
+  }
+
+  async preparePersonalApplicationWithdraw(id: string): Promise<{
+    action: "withdraw";
+    fingerprint: string;
+    preview: BrowserPersonalApplicationDetail;
+  }> {
+    const preview = await this.getPersonalApplicationDetail(id);
+    if (!preview.availableActions.includes("withdraw")) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_UNAVAILABLE",
+        "The requested personal application does not currently expose 申請を取り下げる.",
+        { details: { id, availableActions: preview.availableActions }, exitCode: 2 },
+      );
+    }
+    return {
+      action: "withdraw",
+      fingerprint: createPersonalApplicationWithdrawFingerprint(preview),
+      preview,
+    };
+  }
+
+  async commitPersonalApplicationWithdraw(
+    id: string,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<{
+    id: string;
+    action: "withdraw";
+    verified: true;
+    result: BrowserPersonalApplicationDetail;
+  }> {
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This command withdraws a real personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with its fingerprint and `--confirm`.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    const prepared = await this.preparePersonalApplicationWithdraw(id);
+    if (prepared.fingerprint !== fingerprint) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_PREVIEW_CHANGED",
+        "The personal application changed after preview. No action was taken; prepare a new preview.",
+        { details: { id, currentFingerprint: prepared.fingerprint }, exitCode: 2 },
+      );
+    }
+    const withdraw = this.page.getByRole("button", { name: "申請を取り下げる", exact: true });
+    if (await withdraw.count() !== 1 || !await withdraw.isVisible() || !await withdraw.isEnabled()) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_UNAVAILABLE",
+        "申請を取り下げる became unavailable. No action was taken.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    try {
+      await withdraw.click({ timeout: this.config.navigationTimeoutMs });
+      await this.page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+      await this.page.waitForTimeout(1_000);
+    } catch {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        "The freee withdrawal interaction did not complete cleanly. Do not retry; inspect the application before any further write.",
+        { details: { id, action: "withdraw" }, exitCode: 2 },
+      );
+    }
+    let result: BrowserPersonalApplicationDetail;
+    try {
+      result = await this.getPersonalApplicationDetail(id);
+    } catch {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        "freee did not expose a verifiable withdrawn application after the click. Do not retry; inspect the personal application list before any further write.",
+        { details: { id, action: "withdraw" }, exitCode: 2 },
+      );
+    }
+    if (result.application.status !== "差戻し" || result.availableActions.includes("withdraw")) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        `freee returned personal application status '${result.application.status}' after withdrawal. Do not retry; inspect the application before any further write.`,
+        { details: { id, status: result.application.status }, exitCode: 2 },
+      );
+    }
+    return { id, action: "withdraw", verified: true, result };
   }
 
   async getApprovals(status: BrowserApprovalListStatus = "pending", page = 1): Promise<{
@@ -963,6 +1276,240 @@ export class FreeeBrowserClient {
     return form;
   }
 
+  private async openPersonalApplicationCreateChooser(): Promise<BrowserPersonalApplicationCapability[]> {
+    await this.openEmployeeApplications();
+    const create = this.page.locator('[data-testid="申請ボタン"]');
+    if (await create.count() !== 1 || !await create.isVisible() || !await create.isEnabled()) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_PAGE_UNEXPECTED",
+        "The employee application list did not expose one enabled personal application creation button.",
+        { exitCode: 2 },
+      );
+    }
+    await create.click();
+    await this.page.getByRole("heading", { name: "申請の新規作成", exact: true })
+      .waitFor({ state: "visible", timeout: this.config.navigationTimeoutMs })
+      .catch(() => undefined);
+    this.assertOfficialPage();
+    const visibleLinks = await this.page.evaluate(() => Array.from(
+      document.querySelectorAll<HTMLAnchorElement>('a[href*="ApprovalRequest::"]'),
+    )
+      .filter((link) => link.getClientRects().length > 0)
+      .map((link) => link.innerText.trim().replace(/\s+/g, " "))
+      .filter((label, index, labels) => label.length > 0 && labels.indexOf(label) === index));
+    const hasExactLabel = (label: string): boolean => visibleLinks.some((value) =>
+      value === label || value.startsWith(`${label} `));
+    return ([
+      ["leave", "休暇", hasExactLabel("休暇"), true],
+      ["overtime", "残業", hasExactLabel("残業"), false],
+      ["work-time-correction", "勤務時間修正", hasExactLabel("勤務時間修正"), true],
+    ] as const).map(([kind, label, available, supported]) => ({
+      kind,
+      label,
+      available,
+      supported,
+    }));
+  }
+
+  private async openPersonalApplicationForm(kind: BrowserPersonalApplicationKind): Promise<void> {
+    if (kind === "overtime") {
+      throw new CliError(
+        "PERSONAL_APPLICATION_TYPE_UNSUPPORTED",
+        "Overtime creation is not supported until its enabled freee form can be verified safely.",
+        { details: { kind }, exitCode: 2 },
+      );
+    }
+    const type = kind === "leave" ? "ApprovalRequest::Holiday" : "ApprovalRequest::WorkTime";
+    const link = await this.getUniqueVisibleLocator(
+      `a[href="/approval_requests#/requests/new?type=${type}"]`,
+      `${personalApplicationTypeLabels[kind]} application card`,
+    );
+    await link.click();
+    const heading = kind === "leave" ? "休暇申請を作成" : "勤務時間修正申請を作成";
+    await this.page.getByRole("heading", { name: heading, exact: true })
+      .waitFor({ state: "visible", timeout: this.config.navigationTimeoutMs })
+      .catch(() => undefined);
+    if (await this.page.getByRole("heading", { name: heading, exact: true }).count() !== 1) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        `freee did not open the expected '${heading}' form.`,
+        { details: { kind }, exitCode: 2 },
+      );
+    }
+  }
+
+  private async fillLeaveApplicationForm(
+    application: NormalizedPersonalApplicationCreateInput,
+  ): Promise<string> {
+    await this.selectApplicationDate("#approval-request-fields-date", application.date);
+    const leaveTypes = await this.readLeaveTypes();
+    if (!application.leaveType || !leaveTypes.includes(application.leaveType)) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_LEAVE_TYPE_UNAVAILABLE",
+        "The requested leave type is not available for the selected date in freee.",
+        {
+          details: {
+            date: application.date,
+            requestedLeaveType: application.leaveType,
+            availableLeaveTypes: leaveTypes,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    const leaveType = this.page.locator("#approval-request-fields-holiday-category");
+    await leaveType.selectOption({ label: application.leaveType });
+    const selectedLeaveType = await leaveType.locator("option:checked").textContent();
+    if (selectedLeaveType?.trim() !== application.leaveType) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "freee did not retain the selected leave type.",
+        { exitCode: 2 },
+      );
+    }
+    await this.page.locator('[data-testid="申請理由"]').fill(application.reason);
+    return this.readPersonalApplicationRoute();
+  }
+
+  private async fillWorkTimeCorrectionForm(
+    application: NormalizedPersonalApplicationCreateInput,
+  ): Promise<string> {
+    if (!application.clockIn || !application.clockOut) {
+      throw new CliError(
+        "INVALID_PERSONAL_APPLICATION_TIME",
+        "A work-time correction requires clock-in and clock-out times.",
+        { exitCode: 2 },
+      );
+    }
+    await this.selectApplicationDate("#approval-request-date-input", application.date);
+    await this.selectClockTime("出勤時刻", application.clockIn);
+    await this.selectClockTime("退勤時刻", application.clockOut);
+    if (application.breakStart && application.breakEnd) {
+      await this.selectClockTime("休憩開始時刻", application.breakStart);
+      await this.selectClockTime("休憩終了時刻", application.breakEnd);
+    }
+    await this.page.locator('[data-testid="申請理由"]').fill(application.reason);
+    return this.readPersonalApplicationRoute();
+  }
+
+  private async selectApplicationDate(selector: string, date: string): Promise<void> {
+    const [year, month, day] = date.split("-").map(Number);
+    const input = this.page.locator(selector);
+    if (await input.count() !== 1 || !await input.isVisible() || !await input.isEnabled()) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "The freee personal application form did not expose one enabled date control.",
+        { details: { date }, exitCode: 2 },
+      );
+    }
+    await input.click();
+    const calendar = this.page.getByRole("region", { name: "カレンダーで日付を選択", exact: true });
+    await calendar.waitFor({ state: "visible", timeout: this.config.navigationTimeoutMs });
+    const targetMonth = year! * 12 + month! - 1;
+    let reachedTargetMonth = false;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const monthLabel = await calendar.innerText();
+      const match = monthLabel.match(/(20\d{2})年(\d{1,2})月/);
+      if (!match) {
+        break;
+      }
+      const currentMonth = Number(match[1]) * 12 + Number(match[2]) - 1;
+      if (currentMonth === targetMonth) {
+        reachedTargetMonth = true;
+        break;
+      }
+      const direction = currentMonth < targetMonth ? "次の月" : "前の月";
+      await calendar.getByRole("button", { name: direction, exact: true }).click();
+      await this.page.waitForTimeout(50);
+    }
+    if (!reachedTargetMonth) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "The freee calendar could not navigate to the requested application date.",
+        { details: { date }, exitCode: 2 },
+      );
+    }
+    const dateLabel = `${year}年${month}月${day}日`;
+    const dateButton = calendar.getByRole("button", { name: dateLabel, exact: true });
+    if (await dateButton.count() !== 1 || !await dateButton.isVisible() || !await dateButton.isEnabled()) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_DATE_UNAVAILABLE",
+        "The requested date is not selectable in the freee application calendar.",
+        { details: { date }, exitCode: 2 },
+      );
+    }
+    await dateButton.click();
+    await this.page.waitForFunction(
+      ({ inputSelector, expected }) =>
+        document.querySelector<HTMLInputElement>(inputSelector)?.value === expected,
+      { inputSelector: selector, expected: date },
+      { timeout: this.config.navigationTimeoutMs },
+    );
+  }
+
+  private async readLeaveTypes(): Promise<string[]> {
+    const control = this.page.locator("#approval-request-fields-holiday-category");
+    await control.waitFor({ state: "visible", timeout: this.config.navigationTimeoutMs });
+    const leaveTypes = await control.locator("option").allTextContents();
+    const normalized = leaveTypes.map((value) => value.trim()).filter(Boolean);
+    if (normalized.length === 0 || new Set(normalized).size !== normalized.length) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "freee did not expose one unambiguous set of leave types for the selected date.",
+        { exitCode: 2 },
+      );
+    }
+    return normalized;
+  }
+
+  private async selectClockTime(label: string, time: string): Promise<void> {
+    const [hour, minute] = time.split(":");
+    for (const [suffix, value] of [["時", hour], ["分", minute]] as const) {
+      const input = this.page.getByRole("combobox", { name: `${label}_${suffix}`, exact: true });
+      if (await input.count() !== 1 || !await input.isVisible() || !await input.isEnabled()) {
+        throw new CliError(
+          "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+          `freee did not expose one enabled '${label}_${suffix}' control.`,
+          { exitCode: 2 },
+        );
+      }
+      await input.fill(value!);
+      await input.press("ArrowDown");
+      await input.press("Enter");
+      if (await input.inputValue() !== value) {
+        throw new CliError(
+          "PERSONAL_APPLICATION_TIME_UNAVAILABLE",
+          `freee did not accept '${time}' for '${label}'.`,
+          { details: { label, time }, exitCode: 2 },
+        );
+      }
+    }
+  }
+
+  private async readPersonalApplicationRoute(): Promise<string> {
+    const route = this.page.locator("#approval-request-fields-route-id");
+    await this.page.waitForFunction(() => {
+      const value = document.querySelector<HTMLInputElement>("#approval-request-fields-route-id")?.value;
+      return typeof value === "string" && value.trim().length > 0;
+    }, undefined, { timeout: this.config.navigationTimeoutMs }).catch(() => undefined);
+    if (await route.count() !== 1 || !await route.isVisible() || !await route.isEnabled()) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "The freee personal application form did not expose one selected approval route.",
+        { exitCode: 2 },
+      );
+    }
+    const value = (await route.inputValue()).trim();
+    if (!value) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ROUTE_REQUIRED",
+        "freee requires an approval route, but no route was selected for this application.",
+        { exitCode: 2 },
+      );
+    }
+    return value;
+  }
+
   private async findEmployeeMonthlyApplication(period: string): Promise<BrowserApprovalSummary> {
     await this.openEmployeeApplications();
     const all = this.page.getByRole("button", { name: "全て", exact: true });
@@ -973,7 +1520,7 @@ export class FreeeBrowserClient {
         { exitCode: 2 },
       );
     }
-    let pageInfo = await this.loadEmployeeApplicationPage(1, () => all.click());
+    let pageInfo = await this.loadEmployeeApplicationPage("all", 1, () => all.click());
     const matches: BrowserApprovalSummary[] = [];
     const lastPage = Math.max(1, pageInfo.pageCount);
     for (let page = 1; page <= lastPage; page += 1) {
@@ -986,7 +1533,7 @@ export class FreeeBrowserClient {
             { exitCode: 2 },
           );
         }
-        pageInfo = await this.loadEmployeeApplicationPage(page, () => next.click());
+        pageInfo = await this.loadEmployeeApplicationPage("all", page, () => next.click());
       }
       const parsed = parseApprovalListSnapshot(await this.readApprovalListSnapshot());
       matches.push(...parsed.applications.filter((application) =>
@@ -1045,7 +1592,68 @@ export class FreeeBrowserClient {
     }
   }
 
+  private async selectEmployeeApplicationFilter(
+    status: BrowserPersonalApplicationListStatus,
+  ): Promise<BrowserApprovalPageInfo> {
+    const label = personalApplicationFilterLabels[status];
+    const button = this.page.getByRole("button", { name: label, exact: true });
+    if (await button.count() !== 1 || !await button.isVisible()) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_PAGE_UNEXPECTED",
+        `The employee application filter '${label}' was not one unique visible button.`,
+        { exitCode: 2 },
+      );
+    }
+    const pageInfo = await this.loadEmployeeApplicationPage(status, 1, () => button.click());
+    if (await button.getAttribute("aria-pressed") !== "true") {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_PAGE_UNEXPECTED",
+        `freee did not select the employee application filter '${label}'.`,
+        { exitCode: 2 },
+      );
+    }
+    return pageInfo;
+  }
+
+  private async selectEmployeeApplicationPage(
+    status: BrowserPersonalApplicationListStatus,
+    page: number,
+    initial: BrowserApprovalPageInfo,
+  ): Promise<BrowserApprovalPageInfo> {
+    if (page === initial.page) {
+      return initial;
+    }
+    if (page < initial.page || page > initial.pageCount) {
+      throw new CliError(
+        "INVALID_PERSONAL_APPLICATION_PAGE",
+        `Personal application page ${page} is outside the available ${initial.pageCount} pages.`,
+        { details: { page, pageCount: initial.pageCount }, exitCode: 2 },
+      );
+    }
+    let current = initial;
+    for (let nextPage = initial.page + 1; nextPage <= page; nextPage += 1) {
+      const button = this.page.getByRole("button", { name: `ページ ${nextPage}`, exact: true });
+      if (await button.count() !== 1 || !await button.isVisible() || !await button.isEnabled()) {
+        throw new CliError(
+          "BROWSER_PERSONAL_APPLICATION_PAGE_UNEXPECTED",
+          `The employee application page control for page ${nextPage} was not uniquely available.`,
+          { exitCode: 2 },
+        );
+      }
+      current = await this.loadEmployeeApplicationPage(status, nextPage, () => button.click());
+      if (await button.getAttribute("aria-current") !== "true") {
+        throw new CliError(
+          "BROWSER_PERSONAL_APPLICATION_PAGE_UNEXPECTED",
+          `freee did not select employee application page ${nextPage}.`,
+          { exitCode: 2 },
+        );
+      }
+    }
+    return current;
+  }
+
   private async loadEmployeeApplicationPage(
+    status: BrowserPersonalApplicationListStatus,
     page: number,
     navigate: () => Promise<unknown>,
   ): Promise<BrowserApprovalPageInfo> {
@@ -1057,7 +1665,7 @@ export class FreeeBrowserClient {
           && url.hostname === "p.secure.freee.co.jp"
           && url.pathname === "/api/p/employees/approval_requests/requests"
           && url.searchParams.get("page") === String(page)
-          && url.searchParams.get("q[status_eq]") === "all";
+          && url.searchParams.get("q[status_eq]") === personalApplicationApiStatuses[status];
       } catch {
         return false;
       }
@@ -1067,7 +1675,7 @@ export class FreeeBrowserClient {
     if (!response?.ok()) {
       throw new CliError(
         "BROWSER_MONTHLY_PAGE_UNEXPECTED",
-        `freee did not return employee application page ${page}.`,
+        `freee did not return employee application page ${page} for '${personalApplicationFilterLabels[status]}'.`,
         { exitCode: 2 },
       );
     }
@@ -1086,12 +1694,12 @@ export class FreeeBrowserClient {
   private async openEmployeeApplicationDetail(id: string): Promise<BrowserApprovalDetail> {
     await this.openEmployeeApplications();
     const all = this.page.getByRole("button", { name: "全て", exact: true });
-    let pageInfo = await this.loadEmployeeApplicationPage(1, () => all.click());
+    let pageInfo = await this.loadEmployeeApplicationPage("all", 1, () => all.click());
     const lastPage = Math.max(1, pageInfo.pageCount);
     for (let page = 1; page <= lastPage; page += 1) {
       if (page > 1) {
         const next = this.page.getByRole("button", { name: `ページ ${page}`, exact: true });
-        pageInfo = await this.loadEmployeeApplicationPage(page, () => next.click());
+        pageInfo = await this.loadEmployeeApplicationPage("all", page, () => next.click());
       }
       const snapshot = await this.readApprovalListSnapshot();
       const summary = parseApprovalListSnapshot(snapshot).applications
@@ -1102,10 +1710,28 @@ export class FreeeBrowserClient {
       }
     }
     throw new CliError(
-      "MONTHLY_APPLICATION_NOT_FOUND",
-      "The requested monthly application was not found in the employee application list.",
+      "PERSONAL_APPLICATION_NOT_FOUND",
+      "The requested application No. was not found after reading every employee application page.",
       { details: { id }, exitCode: 2 },
     );
+  }
+
+  private async openPersonalApplicationDetail(id: string): Promise<BrowserPersonalApplicationDetail> {
+    const detail = await this.openEmployeeApplicationDetail(id);
+    const withdraw = this.page.getByRole("button", { name: "申請を取り下げる", exact: true });
+    if (await withdraw.count() > 1) {
+      throw new CliError(
+        "BROWSER_PAGE_AMBIGUOUS",
+        "freee rendered more than one 申請を取り下げる action.",
+        { details: { id }, exitCode: 2 },
+      );
+    }
+    const availableActions: Array<"withdraw"> = [];
+    if (await withdraw.count() === 1 && await withdraw.isVisible() && await withdraw.isEnabled()) {
+      availableActions.push("withdraw");
+    }
+    const { availableActions: _managerActions, ...personalDetail } = detail;
+    return { ...personalDetail, availableActions };
   }
 
   private async openApprovals(): Promise<void> {

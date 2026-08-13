@@ -18,6 +18,9 @@ test("the compiled CLI entry point is runnable without credentials for help", as
   assert.match(result.stdout, /monthly status/);
   assert.match(result.stdout, /monthly prepare-action/);
   assert.match(result.stdout, /monthly commit-action/);
+  assert.match(result.stdout, /requests options/);
+  assert.match(result.stdout, /requests prepare-create/);
+  assert.match(result.stdout, /requests commit-withdraw/);
   assert.match(result.stdout, /approvals prepare-action/);
   assert.match(result.stdout, /approvals commit-action/);
   assert.doesNotMatch(result.stdout, /migrate/);
@@ -107,6 +110,33 @@ test("approval list validates its page before launching a browser", async () => 
       assert.equal(error.code, 2);
       const parsed = JSON.parse(error.stderr);
       assert.equal(parsed.error.code, "INVALID_ARGUMENTS");
+      return true;
+    },
+  );
+});
+
+test("personal application creation validates its fields before launching a browser", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "dist/cli.js",
+      "requests",
+      "prepare-create",
+      "--kind",
+      "work-time-correction",
+      "--date",
+      "2026-08-14",
+      "--clock-in",
+      "9:00",
+      "--clock-out",
+      "18:00",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, FREEE_BACKEND: "playwright" },
+    }),
+    (error) => {
+      assert.equal(error.code, 2);
+      const parsed = JSON.parse(error.stderr);
+      assert.equal(parsed.error.code, "INVALID_PERSONAL_APPLICATION_TIME");
       return true;
     },
   );

@@ -16,6 +16,13 @@ Prefer these tools for business operations when the host has loaded the installe
 | Personal monthly status | `freee_monthly_status` | Read-only |
 | Monthly submit/withdraw preview | `freee_monthly_prepare_action` | Read-only; returns fingerprint |
 | Monthly submit/withdraw execution | `freee_monthly_commit_action` | Real write; exact preview, current-message approval, and `confirm: true` required |
+| Personal application capabilities | `freee_personal_application_options` | Read-only; include a date to read exact leave types |
+| Current employee application list | `freee_personal_applications_list` | Read-only; defaults to pending |
+| Current employee application detail | `freee_personal_application_detail` | Read-only; reports withdrawal availability |
+| Leave/correction creation preview | `freee_personal_application_prepare_create` | Read-only form validation; returns fingerprint |
+| Leave/correction submission | `freee_personal_application_commit_create` | Real write; exact preview, current-message approval, and `confirm: true` required |
+| Personal withdrawal preview | `freee_personal_application_prepare_withdraw` | Read-only; returns fingerprint |
+| Personal withdrawal execution | `freee_personal_application_commit_withdraw` | Real write; exact preview, current-message approval, and `confirm: true` required |
 | Application list | `freee_approvals_list` | Read-only; defaults to pending |
 | Application detail | `freee_approval_detail` | Read-only |
 | Approval/return preview | `freee_approval_prepare_action` | Read-only; returns fingerprint |
@@ -43,6 +50,9 @@ npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
 npm run freee -- monthly status --period 2026-08
+npm run freee -- requests options --date 2026-08-14
+npm run freee -- requests list --status all --page 1
+npm run freee -- requests detail --id 1234
 npm run freee -- approvals list
 npm run freee -- approvals list --status all
 npm run freee -- approvals list --status approved --page 2
@@ -93,6 +103,9 @@ npm run freee -- approvals list
 npm run freee -- approvals list --status pending|returned|approved|all --page PAGE
 npm run freee -- approvals detail --id APPLICATION_NO
 npm run freee -- monthly status [--period YYYY-MM]
+npm run freee -- requests options [--date YYYY-MM-DD]
+npm run freee -- requests list [--status pending|returned|approved|all] [--page PAGE]
+npm run freee -- requests detail --id APPLICATION_NO
 ```
 
 `team status --date` currently accepts a date only when its month matches the month selected by freee. `--company-id` and `--group-id` are not accepted in the Playwright branch; the CLI uses the company and visible management range already selected by freee and never guesses another one. `me` is not implemented for Playwright.
@@ -119,6 +132,55 @@ npm run freee -- monthly commit-action \
 ```
 
 The commit rereads the complete preview before one click. A changed period, state, route, approval step, check, action availability, or fingerprint stops before the click. A successful submit must be visible as `pending` or `approved` with one application; a successful withdrawal must be visible as `returned`. An unknown result is never retried automatically.
+
+## Personal attendance applications
+
+Start with the enabled application types. Include a date when creating leave so freee can return the company's exact date-specific leave labels:
+
+```bash
+npm run freee -- requests options [--date YYYY-MM-DD]
+```
+
+This version safely supports `leave` and `work-time-correction`. It accepts one work segment and one optional complete break pair. The tested company does not enable `残業`; overtime remains unsupported until an enabled form can be inspected and tested. Never use a hidden route or guess its fields.
+
+Read the current employee's application workflow with:
+
+```bash
+npm run freee -- requests list \
+  [--status pending|returned|approved|all] [--page PAGE]
+npm run freee -- requests detail --id APPLICATION_NO
+```
+
+These commands select the employee-side `申請` tab. The list binds `申請中`, `差戻し`, `承認済`, or `全て` to the exact matching freee response and rendered rows. Detail searches all pages for the exact No. and reports `withdraw` only when one enabled `申請を取り下げる` button exists.
+
+Prepare leave creation without submitting:
+
+```bash
+npm run freee -- requests prepare-create \
+  --kind leave --date YYYY-MM-DD \
+  --leave-type "EXACT_LABEL_FROM_OPTIONS" [--reason "REASON"]
+```
+
+Prepare one-segment work-time correction without submitting:
+
+```bash
+npm run freee -- requests prepare-create \
+  --kind work-time-correction --date YYYY-MM-DD \
+  --clock-in HH:MM --clock-out HH:MM \
+  [--break-start HH:MM --break-end HH:MM] [--reason "REASON"]
+```
+
+The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. Only after the current user message approves that exact preview, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`.
+
+Prepare and commit a withdrawal separately:
+
+```bash
+npm run freee -- requests prepare-withdraw --id APPLICATION_NO
+npm run freee -- requests commit-withdraw \
+  --id APPLICATION_NO --fingerprint PREVIEW_SHA256 --confirm
+```
+
+Withdrawal reopens and fingerprints the exact detail, clicks `申請を取り下げる` once, and must verify the same application as `差戻し`. Creation must identify exactly one new `申請中`, `未承認`, or `承認済` application. A changed preview stops before the click, and an unknown result is never retried automatically.
 
 `approvals list` explicitly selects the current account's manager-side `承認` tab and defaults to its pending (`未承認`) queue. It never treats the default employee-side `申請` tab as an approval queue. The optional positive `page` defaults to 1. Read `pageCount` and request later pages only when needed; `totalCount` is the complete filter count, while `applicationCount` and `applications` describe the returned page. Each item includes the freee application No., applicant, status, type, target date, content, reason, application date, current approver, and automatic-check summary. The browser binds each read to the matching freee response and rendered row count instead of relying on a fixed delay. `approvals detail` searches all pages for exactly one numeric No. and returns its full visible fields, approval route, department, comment history, automatic-check messages, and currently available actions. These commands are Playwright-only and never fall back to API.
 
@@ -241,6 +303,13 @@ Important error codes:
 - `MONTHLY_ACTION_UNAVAILABLE`: report the current monthly state and available actions; do not substitute another write.
 - `MONTHLY_PREVIEW_CHANGED`: no action occurred. Prepare again, present the new preview, and obtain new explicit approval.
 - `MONTHLY_ACTION_RESULT_UNKNOWN`: do not retry. Read monthly status and inspect freee before considering another write.
+- `INVALID_PERSONAL_APPLICATION_PAGE`: use a positive page no greater than the returned employee-side `pageCount`.
+- `PERSONAL_APPLICATION_NOT_FOUND`: the numeric application No. was absent after every employee-side page was read; do not substitute a similar item.
+- `PERSONAL_APPLICATION_TYPE_UNAVAILABLE`: the company or employee does not enable that application type; stop and report the options result.
+- `PERSONAL_APPLICATION_TYPE_UNSUPPORTED`: the form has not been verified safely in this MCP version; do not navigate to hidden routes or guess fields.
+- `PERSONAL_APPLICATION_LEAVE_TYPE_UNAVAILABLE`: rerun options with the same date and use one exact returned label.
+- `PERSONAL_APPLICATION_PREVIEW_CHANGED`: no action occurred. Prepare again, present the new preview, and obtain new explicit approval.
+- `PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN`: do not retry. Read the personal application list/detail and inspect freee before considering another write.
 - `INVALID_APPROVAL_PAGE`: use a positive page no greater than the returned `pageCount`.
 - `APPROVAL_NOT_FOUND`: the numeric application No. was absent after every manager-workflow page was read; do not substitute a similar item.
 - `APPROVAL_ACTION_UNAVAILABLE`: the application is already processed or the current account cannot perform that action; stop.
@@ -258,8 +327,8 @@ Important error codes:
 
 ## Current scope
 
-Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw; Playwright monthly department attendance-monitor summaries; and synchronized paginated Playwright employee application list/detail plus fingerprint-bound single-item approval/return.
+Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw; synchronized employee-side personal application list/detail plus fingerprint-bound leave/work-time-correction creation and withdrawal; Playwright monthly department attendance-monitor summaries; and synchronized paginated manager-side application list/detail plus fingerprint-bound single-item approval/return.
 
 Implemented but unavailable to the current API role: API-backed direct department member daily punch status. Do not fall back.
 
-Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, other employee-created applications/corrections, deletes, audit logs, and batch changes. Keep these on `TODO.md`; do not directly run the legacy Playwright project.
+Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, overtime creation, multiple work segments/breaks, personal application deletion, audit logs, and batch changes. Keep these on `TODO.md`; do not directly run the legacy Playwright project.

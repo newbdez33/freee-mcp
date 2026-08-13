@@ -22,9 +22,9 @@ function createFakeService() {
       return { backend: "playwright", action, verified: true };
     },
     async getTeamStatus() { return { backend: "playwright", memberCount: 0 }; },
-    async getApprovals(status) {
-      calls.push(["approvals-list", status]);
-      return { backend: "playwright", filter: status, applicationCount: 0, applications: [] };
+    async getApprovals(status, page) {
+      calls.push(["approvals-list", status, page]);
+      return { backend: "playwright", filter: status, page, applicationCount: 0, applications: [] };
     },
     async getApprovalDetail(id) { return { backend: "playwright", id }; },
     async prepareApprovalAction(id, action) {
@@ -93,7 +93,16 @@ test("MCP tools return safe structured envelopes and default the approval filter
 
     const approvals = await client.callTool({ name: "freee_approvals_list", arguments: {} });
     assert.equal(approvals.structuredContent.data.filter, "pending");
-    assert.deepEqual(service.calls, [["approvals-list", "pending"]]);
+    assert.equal(approvals.structuredContent.data.page, 1);
+    const approved = await client.callTool({
+      name: "freee_approvals_list",
+      arguments: { status: "approved", page: 2 },
+    });
+    assert.equal(approved.structuredContent.data.page, 2);
+    assert.deepEqual(service.calls, [
+      ["approvals-list", "pending", 1],
+      ["approvals-list", "approved", 2],
+    ]);
   } finally {
     await client.close();
     await server.close();

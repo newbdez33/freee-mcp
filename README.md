@@ -163,6 +163,7 @@ npm run freee -- clock status
 npm run freee -- team status
 npm run freee -- approvals list
 npm run freee -- approvals list --status all
+npm run freee -- approvals list --status approved --page 2
 npm run freee -- approvals detail --id APPLICATION_NO
 npm run freee -- browser status
 npm run freee -- browser credentials-status
@@ -192,14 +193,14 @@ The Playwright backend supports System Keychain credentials, persistent login, p
 
 ## Employee application handling
 
-`approvals list` explicitly selects freee's manager-side `承認` tab and defaults to its pending `未承認` queue; it never reads the default employee-side `申請` tab as an approval queue. Each result includes the applicant, and `--status returned|approved|all` reads other manager-side states. `approvals detail --id` returns the list summary, application fields, approval route, department, comments, and freee automatic-check results. Both commands are read-only.
+`approvals list` explicitly selects freee's manager-side `承認` tab and defaults to its pending `未承認` queue; it never reads the default employee-side `申請` tab as an approval queue. Each result includes the applicant. `--status returned|approved|all` reads other manager-side states, while `--page N` selects one page. Results report `page`, `pageCount`, `totalCount`, and the current page's `applicationCount`, so agents can continue without emitting an unbounded employee history. The browser waits for the exact freee response and matching rendered row count before parsing, preventing one filter's stale rows from being returned for another. `approvals detail --id` searches the complete paginated manager workflow and returns the application fields, approval route, department, comments, and freee automatic-check results. Both commands are read-only.
 
 A single application write has two separate steps:
 
 1. `approvals prepare-action` reads the current full detail, verifies that the requested button is available, and returns a preview and content fingerprint without clicking a business control.
 2. The agent may call `approvals commit-action ... --confirm` with the same application number, action, and fingerprint only after the user reviews the applicant, type, target date, content, reason, and automatic checks and explicitly requests approval or return in the current message.
 
-Before committing, the CLI rereads the detail. A fingerprint mismatch, missing button, application processed by someone else, or new comment stops the operation and requires a new preview. Batch approval is not supported, and development tests never perform real approvals or returns.
+Before committing, the CLI rereads the detail. A fingerprint mismatch, missing button, application processed by someone else, or new comment stops the operation and requires a new preview. After the click, the application is reread through the synchronized paginated workflow and must expose the exact expected `承認済` or `差戻し` state. A disappeared or unverifiable result is reported as unknown and must never be retried automatically. Batch approval is not supported, and development tests never perform real approvals or returns.
 
 ## Backend selection
 

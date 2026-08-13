@@ -43,7 +43,7 @@ export interface FreeeOperations {
     options?: { companyId?: number },
   ): Promise<Record<string, unknown>>;
   getTeamStatus(options?: TeamStatusOptions): Promise<Record<string, unknown>>;
-  getApprovals(status?: BrowserApprovalListStatus): Promise<Record<string, unknown>>;
+  getApprovals(status?: BrowserApprovalListStatus, page?: number): Promise<Record<string, unknown>>;
   getApprovalDetail(id: string): Promise<Record<string, unknown>>;
   prepareApprovalAction(id: string, action: BrowserApprovalAction): Promise<Record<string, unknown>>;
   commitApprovalAction(
@@ -250,11 +250,12 @@ export class FreeeService implements FreeeOperations {
 
   async getApprovals(
     status: BrowserApprovalListStatus = "pending",
+    page = 1,
   ): Promise<Record<string, unknown>> {
     this.requireBackend("playwright", "Approval workflow");
     return {
       backend: this.backend,
-      ...asRecord(await this.withBrowser((client) => client.getApprovals(status))),
+      ...asRecord(await this.withBrowser((client) => client.getApprovals(status, page))),
     };
   }
 

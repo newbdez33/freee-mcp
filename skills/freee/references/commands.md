@@ -41,6 +41,7 @@ npm run freee -- clock status
 npm run freee -- team status
 npm run freee -- approvals list
 npm run freee -- approvals list --status all
+npm run freee -- approvals list --status approved --page 2
 npm run freee -- approvals detail --id 1234
 npm run freee -- clock status --company-id 123
 npm run freee -- clock status --date 2026-08-10
@@ -85,13 +86,13 @@ npm run freee -- clock status
 npm run freee -- team status
 npm run freee -- team status --date YYYY-MM-DD
 npm run freee -- approvals list
-npm run freee -- approvals list --status pending|returned|approved|all
+npm run freee -- approvals list --status pending|returned|approved|all --page PAGE
 npm run freee -- approvals detail --id APPLICATION_NO
 ```
 
 `team status --date` currently accepts a date only when its month matches the month selected by freee. `--company-id` and `--group-id` are not accepted in the Playwright branch; the CLI uses the company and visible management range already selected by freee and never guesses another one. `me` is not implemented for Playwright.
 
-`approvals list` explicitly selects the current account's manager-side `承認` tab and defaults to its pending (`未承認`) queue. It never treats the default employee-side `申請` tab as an approval queue. Each item includes the freee application No., applicant, status, type, target date, content, reason, application date, current approver, and automatic-check summary. `approvals detail` opens exactly one row by its numeric No. and returns its full visible fields, approval route, department, comment history, automatic-check messages, and currently available actions. These commands are Playwright-only and never fall back to API.
+`approvals list` explicitly selects the current account's manager-side `承認` tab and defaults to its pending (`未承認`) queue. It never treats the default employee-side `申請` tab as an approval queue. The optional positive `page` defaults to 1. Read `pageCount` and request later pages only when needed; `totalCount` is the complete filter count, while `applicationCount` and `applications` describe the returned page. Each item includes the freee application No., applicant, status, type, target date, content, reason, application date, current approver, and automatic-check summary. The browser binds each read to the matching freee response and rendered row count instead of relying on a fixed delay. `approvals detail` searches all pages for exactly one numeric No. and returns its full visible fields, approval route, department, comment history, automatic-check messages, and currently available actions. These commands are Playwright-only and never fall back to API.
 
 ## Employee application actions
 
@@ -112,7 +113,7 @@ npm run freee -- approvals commit-action \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-The CLI reopens the application and recomputes the fingerprint before locating one exact visible, enabled freee button. Any changed detail, new comment, changed availability, missing confirmation, or ambiguous control stops before the click. A post-click state is read again; an unverified change is reported as unknown and must be inspected before any further write. Never retry an unknown result. `return` maps to freee's `申請者へ差し戻す`; do not describe it as an irreversible rejection. Batch approval is not implemented.
+The CLI reopens the application and recomputes the fingerprint before locating one exact visible, enabled freee button. Any changed detail, new comment, changed availability, missing confirmation, or ambiguous control stops before the click. A post-click state is read again across the synchronized paginated workflow and must match `承認済` for approve or `差戻し` for return. A missing or different state is reported as unknown and must be inspected before any further write. Never retry an unknown result. `return` maps to freee's `申請者へ差し戻す`; do not describe it as an irreversible rejection. Batch approval is not implemented.
 
 `auth client` reports only a short SHA-256 fingerprint of the configured Client ID plus the callback URL. Use it to match a configured credential to a freee developer app without printing the Client ID or Client Secret.
 
@@ -207,8 +208,8 @@ Important error codes:
 - `BROWSER_NAVIGATION_BLOCKED` or `BROWSER_PAGE_AMBIGUOUS`: stop. Do not broaden selectors, allow a new host, or force a click without reviewing the current freee page structure.
 - `BROWSER_TEAM_PAGE_UNEXPECTED`: freee changed the attendance-monitor table schema; stop rather than returning misaligned employee data.
 - `BROWSER_APPROVAL_PAGE_UNEXPECTED` or `BROWSER_APPROVAL_DETAIL_UNEXPECTED`: freee changed the supported application list/detail view; stop without writing.
-- `BROWSER_APPROVAL_PAGINATION_UNSUPPORTED`: the list spans multiple pages; do not report the first page as complete or guess a target row.
-- `APPROVAL_NOT_FOUND`: verify the numeric application No. by rerunning the complete list; do not substitute a similar item.
+- `INVALID_APPROVAL_PAGE`: use a positive page no greater than the returned `pageCount`.
+- `APPROVAL_NOT_FOUND`: the numeric application No. was absent after every manager-workflow page was read; do not substitute a similar item.
 - `APPROVAL_ACTION_UNAVAILABLE`: the application is already processed or the current account cannot perform that action; stop.
 - `APPROVAL_PREVIEW_CHANGED`: no action occurred. Run `prepare-action` again, present the new preview, and obtain new explicit approval.
 - `APPROVAL_ACTION_RESULT_UNKNOWN`: do not retry. Read the application detail and report its state before considering another write.
@@ -224,8 +225,8 @@ Important error codes:
 
 ## Current scope
 
-Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright monthly department attendance-monitor summaries; and Playwright employee application list/detail plus fingerprint-bound single-item approval/return.
+Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright monthly department attendance-monitor summaries; and synchronized paginated Playwright employee application list/detail plus fingerprint-bound single-item approval/return.
 
 Implemented but unavailable to the current API role: API-backed direct department member daily punch status. Do not fall back.
 
-Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, employee-created applications/corrections, monthly submissions/withdrawals, deletes, audit logs, pagination beyond one page, and batch changes. Keep these on `TODO.md`; do not directly run the legacy Playwright project.
+Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, employee-created applications/corrections, monthly submissions/withdrawals, deletes, audit logs, and batch changes. Keep these on `TODO.md`; do not directly run the legacy Playwright project.

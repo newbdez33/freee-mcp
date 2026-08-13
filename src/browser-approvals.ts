@@ -24,6 +24,15 @@ export interface ApprovalListSnapshot {
   pageCount?: number;
 }
 
+export interface BrowserApprovalPageInfo {
+  page: number;
+  pageCount: number;
+  totalCount: number;
+  perPage: number;
+  rowCount: number;
+  requestCodes: string[];
+}
+
 export interface BrowserApprovalDetail {
   application: BrowserApprovalSummary;
   fields: Array<{ label: string; value: string }>;
@@ -113,6 +122,41 @@ export function getApprovalRowOffset(headers: string[], cells: string[]): number
   return candidates[0]!;
 }
 
+export function parseApprovalPageInfo(value: unknown): BrowserApprovalPageInfo {
+  if (!isRecord(value) || !Array.isArray(value.approval_requests) || !isRecord(value.meta)) {
+    throw approvalResponseError();
+  }
+  const page = value.meta.current_page;
+  const pageCount = value.meta.total_pages;
+  const totalCount = value.meta.total_count;
+  const perPage = value.meta.per;
+  const requestCodes = value.approval_requests.map((application) =>
+    isRecord(application) && isPositiveInteger(application.request_code)
+      ? String(application.request_code)
+      : null);
+  if (!isPositiveInteger(page)
+      || !isNonNegativeInteger(pageCount)
+      || !isNonNegativeInteger(totalCount)
+      || !isPositiveInteger(perPage)
+      || value.approval_requests.length > perPage
+      || value.approval_requests.length > totalCount
+      || requestCodes.some((requestCode) => requestCode === null)
+      || new Set(requestCodes).size !== requestCodes.length
+      || Math.ceil(totalCount / perPage) !== pageCount
+      || (totalCount === 0 && (pageCount !== 0 || value.approval_requests.length !== 0))
+      || (totalCount > 0 && (pageCount === 0 || page > pageCount))) {
+    throw approvalResponseError();
+  }
+  return {
+    page,
+    pageCount,
+    totalCount,
+    perPage,
+    rowCount: value.approval_requests.length,
+    requestCodes: requestCodes as string[],
+  };
+}
+
 export function createApprovalFingerprint(
   detail: BrowserApprovalDetail,
   action: BrowserApprovalAction,
@@ -125,4 +169,24 @@ export function createApprovalFingerprint(
 function normalize(value: string | undefined): string | null {
   const normalized = value?.trim().replace(/\s+/g, " ") ?? "";
   return normalized === "" || normalized === "-" ? null : normalized;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function approvalResponseError(): CliError {
+  return new CliError(
+    "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+    "The freee approval list response no longer matches the supported pagination schema.",
+    { exitCode: 2 },
+  );
 }

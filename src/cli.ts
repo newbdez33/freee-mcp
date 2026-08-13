@@ -134,7 +134,7 @@ async function main(argv: string[]): Promise<void> {
 
   if (group === "approvals" && command === "list") {
     const options = parseApprovalListOptions(rest);
-    printSuccess("approvals list", await service.getApprovals(options.status));
+    printSuccess("approvals list", await service.getApprovals(options.status, options.page));
     return;
   }
 
@@ -211,11 +211,14 @@ function parseTeamOptions(args: string[]): { companyId?: number; groupId?: numbe
   };
 }
 
-function parseApprovalListOptions(args: string[]): { status: BrowserApprovalListStatus } {
+function parseApprovalListOptions(args: string[]): { status: BrowserApprovalListStatus; page: number } {
   try {
     const parsed = parseArgs({
       args,
-      options: { status: { type: "string", default: "pending" } },
+      options: {
+        status: { type: "string", default: "pending" },
+        page: { type: "string", default: "1" },
+      },
       strict: true,
       allowPositionals: false,
     });
@@ -223,11 +226,15 @@ function parseApprovalListOptions(args: string[]): { status: BrowserApprovalList
     if (status !== "pending" && status !== "returned" && status !== "approved" && status !== "all") {
       throw new Error("invalid status");
     }
-    return { status };
+    const page = Number(parsed.values.page);
+    if (!Number.isInteger(page) || page <= 0) {
+      throw new Error("invalid page");
+    }
+    return { status, page };
   } catch {
     throw new CliError(
       "INVALID_ARGUMENTS",
-      "`approvals list` accepts `--status pending|returned|approved|all`.",
+      "`approvals list` accepts `--status pending|returned|approved|all` and a positive `--page`.",
       { exitCode: 2 },
     );
   }
@@ -521,7 +528,7 @@ function printHelp(): void {
   process.stdout.write("  freee-agent me\n");
   process.stdout.write("  freee-agent clock status [--company-id ID] [--date YYYY-MM-DD]\n");
   process.stdout.write("  freee-agent team status [--company-id ID] [--group-id ID] [--date YYYY-MM-DD]\n");
-  process.stdout.write("  freee-agent approvals list [--status pending|returned|approved|all]\n");
+  process.stdout.write("  freee-agent approvals list [--status pending|returned|approved|all] [--page N]\n");
   process.stdout.write("  freee-agent approvals detail --id NO\n");
   process.stdout.write("  freee-agent approvals prepare-action --id NO --action approve|return\n");
   process.stdout.write("  freee-agent approvals commit-action --id NO --action approve|return --fingerprint SHA256 --confirm\n");

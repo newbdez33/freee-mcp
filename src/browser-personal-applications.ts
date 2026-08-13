@@ -45,6 +45,8 @@ export interface BrowserPersonalApplicationCreateInput {
   date: string;
   reason?: string;
   leaveType?: string;
+  leaveStart?: string;
+  leaveEnd?: string;
   clockIn?: string;
   clockOut?: string;
   breakStart?: string;
@@ -56,6 +58,8 @@ export interface NormalizedPersonalApplicationCreateInput {
   date: string;
   reason: string;
   leaveType: string | null;
+  leaveStart: string | null;
+  leaveEnd: string | null;
   clockIn: string | null;
   clockOut: string | null;
   breakStart: string | null;
@@ -92,6 +96,8 @@ export function normalizePersonalApplicationCreateInput(
     );
   }
   const leaveType = normalizeOptional(input.leaveType);
+  const leaveStart = normalizeOptional(input.leaveStart);
+  const leaveEnd = normalizeOptional(input.leaveEnd);
   const clockIn = normalizeOptional(input.clockIn);
   const clockOut = normalizeOptional(input.clockOut);
   const breakStart = normalizeOptional(input.breakStart);
@@ -105,12 +111,29 @@ export function normalizePersonalApplicationCreateInput(
         { exitCode: 2 },
       );
     }
+    if ((leaveStart === null) !== (leaveEnd === null)
+        || (leaveStart !== null && (!isClockTime(leaveStart) || !isClockTime(leaveEnd)))) {
+      throw new CliError(
+        "INVALID_PERSONAL_APPLICATION_LEAVE_TIME",
+        "leave_start and leave_end must either both be omitted or both use HH:MM format.",
+        { exitCode: 2 },
+      );
+    }
+    if (leaveStart !== null && leaveEnd !== null && toMinutes(leaveStart) >= toMinutes(leaveEnd)) {
+      throw new CliError(
+        "INVALID_PERSONAL_APPLICATION_LEAVE_TIME",
+        "leave_start must be earlier than leave_end.",
+        { exitCode: 2 },
+      );
+    }
     assertUnusedTimeFields(input.kind, { clockIn, clockOut, breakStart, breakEnd });
     return {
       kind: input.kind,
       date,
       reason,
       leaveType,
+      leaveStart,
+      leaveEnd,
       clockIn: null,
       clockOut: null,
       breakStart: null,
@@ -141,11 +164,20 @@ export function normalizePersonalApplicationCreateInput(
         { exitCode: 2 },
       );
     }
+    if (leaveStart || leaveEnd) {
+      throw new CliError(
+        "INVALID_PERSONAL_APPLICATION_FIELDS",
+        "leave_start and leave_end are valid only for a leave application.",
+        { exitCode: 2 },
+      );
+    }
     return {
       kind: input.kind,
       date,
       reason,
       leaveType: null,
+      leaveStart: null,
+      leaveEnd: null,
       clockIn,
       clockOut,
       breakStart,
@@ -154,7 +186,7 @@ export function normalizePersonalApplicationCreateInput(
   }
 
   if (input.kind === "overtime") {
-    if (leaveType || clockIn || clockOut || breakStart || breakEnd) {
+    if (leaveType || leaveStart || leaveEnd || clockIn || clockOut || breakStart || breakEnd) {
       throw new CliError(
         "INVALID_PERSONAL_APPLICATION_FIELDS",
         "The current overtime capability check does not accept leave or work-time fields.",
@@ -166,6 +198,8 @@ export function normalizePersonalApplicationCreateInput(
       date,
       reason,
       leaveType: null,
+      leaveStart: null,
+      leaveEnd: null,
       clockIn: null,
       clockOut: null,
       breakStart: null,
@@ -211,6 +245,11 @@ function isClockTime(value: string | null): value is string {
   }
   const [hour, minute] = value.split(":").map(Number);
   return hour! >= 0 && hour! <= 23 && minute! >= 0 && minute! <= 59;
+}
+
+function toMinutes(value: string): number {
+  const [hour, minute] = value.split(":").map(Number);
+  return hour! * 60 + minute!;
 }
 
 function isCalendarDate(value: string): boolean {

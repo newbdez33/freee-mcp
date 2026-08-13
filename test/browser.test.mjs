@@ -368,6 +368,46 @@ test("browser profile must remain outside the repository", () => {
   );
 });
 
+test("browser diagnostic screenshots are opt-in and must remain outside the repository", () => {
+  assert.equal(
+    readPlaywrightRuntimeConfig(
+      { FREEE_BROWSER_PROFILE_DIR: "/tmp/freee-profile" },
+      "/workspace/project",
+    ).diagnosticDirectory,
+    undefined,
+  );
+  assert.throws(
+    () => readPlaywrightRuntimeConfig(
+      {
+        FREEE_BROWSER_PROFILE_DIR: "/tmp/freee-profile",
+        FREEE_BROWSER_DIAGNOSTIC_DIR: "/workspace/project/diagnostics",
+      },
+      "/workspace/project",
+    ),
+    (error) => error.code === "BROWSER_DIAGNOSTIC_PATH_UNSAFE",
+  );
+  assert.throws(
+    () => readPlaywrightRuntimeConfig(
+      {
+        FREEE_BROWSER_PROFILE_DIR: "/tmp/freee-profile",
+        FREEE_BROWSER_DIAGNOSTIC_DIR: "/tmp",
+      },
+      "/workspace/project",
+    ),
+    (error) => error.code === "BROWSER_DIAGNOSTIC_PATH_UNSAFE",
+  );
+  assert.equal(
+    readPlaywrightRuntimeConfig(
+      {
+        FREEE_BROWSER_PROFILE_DIR: "/tmp/freee-profile",
+        FREEE_BROWSER_DIAGNOSTIC_DIR: "/tmp/freee-diagnostics",
+      },
+      "/workspace/project",
+    ).diagnosticDirectory,
+    "/tmp/freee-diagnostics",
+  );
+});
+
 test("Playwright clock action never clicks without explicit confirmation", async () => {
   const { client, state } = createFakeBrowser(["in"]);
 
@@ -410,6 +450,57 @@ test("Playwright approval list navigates to one explicit later page", async () =
   assert.equal(result.page, 2);
   assert.equal(result.pageCount, 2);
   assert.equal(result.applicationCount, 1);
+});
+
+test("Playwright approval detail waits for the route to render after a row click", async () => {
+  const { client } = createFakeBrowser([]);
+  let detailVisible = false;
+  let waitedForDetail = false;
+  let waitedForNetworkIdle = false;
+  const row = {
+    locator() {
+      return {
+        nth() {
+          return { async innerText() { return "1234"; } };
+        },
+      };
+    },
+    async isVisible() { return true; },
+    async click() {},
+  };
+  client.page.locator = (selector) => {
+    assert.equal(selector, "table tbody tr.vb-tableListRow--clickable");
+    return {
+      async count() { return 1; },
+      nth() { return row; },
+    };
+  };
+  client.page.getByText = (text, options) => {
+    assert.equal(text, "一覧に戻る");
+    assert.equal(options.exact, true);
+    return {
+      async waitFor(options) {
+        assert.equal(options.state, "visible");
+        waitedForDetail = true;
+        detailVisible = true;
+      },
+      async count() { return detailVisible ? 1 : 0; },
+      async isVisible() { return detailVisible; },
+    };
+  };
+  client.page.waitForLoadState = async (state, options) => {
+    assert.equal(state, "networkidle");
+    assert.equal(options.timeout, 5_000);
+    waitedForNetworkIdle = true;
+  };
+
+  await client.openApprovalRow("1234", {
+    headers: ["ステータス", "No.", "種別"],
+    rows: [["未承認", "1234", "休暇"]],
+  });
+
+  assert.equal(waitedForDetail, true);
+  assert.equal(waitedForNetworkIdle, true);
 });
 
 test("Playwright personal application list uses the employee returned-state filter", async () => {
@@ -461,7 +552,7 @@ test("Playwright approval commit stops when the prepared detail fingerprint chan
   assert.deepEqual(state.clicks, []);
 });
 
-test("Playwright approval commit reports an unknown result when the clicked item disappears", async () => {
+test("Playwright approval commit reports unknown when the item disappears from both workflows", async () => {
   const { client, state } = createFakeBrowser([]);
   const detail = {
     application: {
@@ -489,6 +580,11 @@ test("Playwright approval commit reports an unknown result when the clicked item
     }
     throw new CliError("APPROVAL_NOT_FOUND", "missing after click", { exitCode: 2 });
   };
+  client.getPersonalApplicationDetail = async () => {
+    throw new CliError("PERSONAL_APPLICATION_NOT_FOUND", "missing from employee history", {
+      exitCode: 2,
+    });
+  };
   client.page.getByRole = (_role, options) => {
     assert.equal(options.name, "承認");
     return {
@@ -504,6 +600,70 @@ test("Playwright approval commit reports an unknown result when the clicked item
     (error) => error.code === "APPROVAL_ACTION_RESULT_UNKNOWN",
   );
   assert.deepEqual(state.clicks, ["approve"]);
+});
+
+test("Playwright approval return verifies the current user's item through employee history", async () => {
+  const { client, state } = createFakeBrowser([]);
+  const detail = {
+    application: {
+      id: "1234",
+      status: "未承認",
+      applicant: "申請者 A",
+      type: "休暇",
+      targetDate: "2026/08/17",
+      content: "有休 全休",
+      reason: "return validation",
+      appliedAt: "2026/08/13",
+      currentApprover: "承認者 A",
+      checkResult: null,
+    },
+    fields: [],
+    tables: [],
+    detailLines: ["申請内容"],
+    availableActions: ["approve", "return"],
+  };
+  let detailReads = 0;
+  client.getApprovalDetail = async () => {
+    detailReads += 1;
+    if (detailReads === 1) {
+      return detail;
+    }
+    throw new CliError("APPROVAL_NOT_FOUND", "missing from manager history", { exitCode: 2 });
+  };
+  client.getPersonalApplicationDetail = async () => ({
+    application: {
+      ...detail.application,
+      status: "差戻し",
+      applicant: null,
+      currentApprover: null,
+    },
+    fields: [],
+    tables: [],
+    detailLines: ["申請者 Aさんが休暇申請を差戻ししました。"],
+    availableActions: [],
+  });
+  client.page.getByRole = (_role, options) => {
+    assert.equal(options.name, "申請者へ差し戻す");
+    return {
+      async count() { return 1; },
+      async isVisible() { return true; },
+      async isEnabled() { return true; },
+      async click() { state.clicks.push("return"); },
+    };
+  };
+
+  const result = await client.commitApprovalAction(
+    "1234",
+    "return",
+    createApprovalFingerprint(detail, "return"),
+    true,
+  );
+
+  assert.equal(result.verified, true);
+  assert.equal(result.result.application.status, "差戻し");
+  assert.equal(result.result.application.applicant, "申請者 A");
+  assert.deepEqual(result.result.availableActions, []);
+  assert.deepEqual(state.clicks, ["return"]);
 });
 
 test("Playwright monthly commit never clicks without explicit confirmation", async () => {
@@ -542,6 +702,8 @@ test("Playwright personal application commits never click without explicit confi
 test("Playwright personal application creation binds its preview and verifies one new item", async () => {
   const { client } = createFakeBrowser([]);
   let clicks = 0;
+  let currentDetailReads = 0;
+  let detailReopens = 0;
   const fingerprint = "c".repeat(64);
   client.preparePersonalApplicationCreate = async () => {
     client.preparedPersonalApplicationFirstPageIds = ["10"];
@@ -560,12 +722,22 @@ test("Playwright personal application creation binds its preview and verifies on
     async isEnabled() { return true; },
     async click() { clicks += 1; },
   });
+  client.readCurrentPersonalApplicationDetailSnapshot = async () => {
+    currentDetailReads += 1;
+    return {
+      applicationId: "11",
+      fields: [{ label: "申請内容", value: "有休（半休） 13:00 - 18:00" }],
+      tables: [],
+      detailLines: ["申請が作成されました。"],
+      availableActions: ["withdraw"],
+    };
+  };
+  client.getPersonalApplicationDetail = async () => {
+    detailReopens += 1;
+    throw new Error("creation must not reopen the detail after submission");
+  };
   client.getPersonalApplications = async () => ({
-    applications: [{ id: "11" }, { id: "10" }],
-  });
-  client.getPersonalApplicationDetail = async (id) => ({
-    application: { id, status: "申請中" },
-    availableActions: ["withdraw"],
+    applications: [{ id: "11", status: "申請中" }, { id: "10", status: "承認済" }],
   });
 
   const result = await client.commitPersonalApplicationCreate({
@@ -574,8 +746,88 @@ test("Playwright personal application creation binds its preview and verifies on
     leaveType: "有休",
   }, fingerprint, true);
   assert.equal(clicks, 1);
+  assert.equal(currentDetailReads, 1);
+  assert.equal(detailReopens, 0);
   assert.equal(result.verified, true);
   assert.equal(result.result.application.id, "11");
+  assert.deepEqual(result.result.fields, [
+    { label: "申請内容", value: "有休（半休） 13:00 - 18:00" },
+  ]);
+});
+
+test("Playwright personal application creation treats a missing post-submit detail as unknown", async () => {
+  const { client } = createFakeBrowser([]);
+  const fingerprint = "c".repeat(64);
+  client.preparePersonalApplicationCreate = async () => ({
+    action: "create",
+    fingerprint,
+    preview: {
+      application: { kind: "leave", date: "2026-08-14" },
+      existingFirstPage: { count: 0, fingerprint: "d".repeat(64) },
+    },
+  });
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {},
+  });
+  client.readCurrentPersonalApplicationDetailSnapshot = async () => {
+    throw new Error("detail did not render");
+  };
+  client.getPersonalApplications = async () => ({
+    applications: [{ id: "11", status: "申請中" }],
+  });
+
+  await assert.rejects(
+    client.commitPersonalApplicationCreate({
+      kind: "leave",
+      date: "2026-08-14",
+      leaveType: "有休",
+    }, fingerprint, true),
+    (error) => error.code === "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+  );
+});
+
+test("Playwright personal application creation binds the detail No. to the new list item", async () => {
+  const { client } = createFakeBrowser([]);
+  const fingerprint = "c".repeat(64);
+  client.preparePersonalApplicationCreate = async () => {
+    client.preparedPersonalApplicationFirstPageIds = ["10"];
+    return {
+      action: "create",
+      fingerprint,
+      preview: {
+        application: { kind: "leave", date: "2026-08-14" },
+        existingFirstPage: { count: 1, fingerprint: "d".repeat(64) },
+      },
+    };
+  };
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() {},
+  });
+  client.readCurrentPersonalApplicationDetailSnapshot = async () => ({
+    applicationId: "12",
+    fields: [],
+    tables: [],
+    detailLines: [],
+    availableActions: ["withdraw"],
+  });
+  client.getPersonalApplications = async () => ({
+    applications: [{ id: "11", status: "申請中" }, { id: "10", status: "承認済" }],
+  });
+
+  await assert.rejects(
+    client.commitPersonalApplicationCreate({
+      kind: "leave",
+      date: "2026-08-14",
+      leaveType: "有休",
+    }, fingerprint, true),
+    (error) => error.code === "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+  );
 });
 
 test("Playwright personal application withdrawal verifies the exact returned item", async () => {

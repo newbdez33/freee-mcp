@@ -212,6 +212,8 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
       reason: personalApplicationReasonSchema,
       leave_type: z.string().min(1).max(100).optional()
         .describe("Required for leave; use one exact label returned by the options tool for this date."),
+      leave_start: personalApplicationTimeSchema.describe("Required with leave_end when the selected leave type exposes a time range."),
+      leave_end: personalApplicationTimeSchema.describe("Required with leave_start when the selected leave type exposes a time range."),
       clock_in: personalApplicationTimeSchema,
       clock_out: personalApplicationTimeSchema,
       break_start: personalApplicationTimeSchema,
@@ -230,6 +232,8 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
       date: personalApplicationDateSchema,
       reason: personalApplicationReasonSchema,
       leave_type: z.string().min(1).max(100).optional(),
+      leave_start: personalApplicationTimeSchema,
+      leave_end: personalApplicationTimeSchema,
       clock_in: personalApplicationTimeSchema,
       clock_out: personalApplicationTimeSchema,
       break_start: personalApplicationTimeSchema,
@@ -331,6 +335,8 @@ function toPersonalApplicationCreateInput(args: {
   date: string;
   reason?: string;
   leave_type?: string;
+  leave_start?: string;
+  leave_end?: string;
   clock_in?: string;
   clock_out?: string;
   break_start?: string;
@@ -340,6 +346,8 @@ function toPersonalApplicationCreateInput(args: {
   date: string;
   reason?: string;
   leaveType?: string;
+  leaveStart?: string;
+  leaveEnd?: string;
   clockIn?: string;
   clockOut?: string;
   breakStart?: string;
@@ -350,6 +358,8 @@ function toPersonalApplicationCreateInput(args: {
     date: args.date,
     ...(args.reason === undefined ? {} : { reason: args.reason }),
     ...(args.leave_type === undefined ? {} : { leaveType: args.leave_type }),
+    ...(args.leave_start === undefined ? {} : { leaveStart: args.leave_start }),
+    ...(args.leave_end === undefined ? {} : { leaveEnd: args.leave_end }),
     ...(args.clock_in === undefined ? {} : { clockIn: args.clock_in }),
     ...(args.clock_out === undefined ? {} : { clockOut: args.clock_out }),
     ...(args.break_start === undefined ? {} : { breakStart: args.break_start }),

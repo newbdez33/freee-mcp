@@ -381,6 +381,8 @@ function parsePersonalApplicationCreateOptions(
         date: { type: "string" },
         reason: { type: "string" },
         "leave-type": { type: "string" },
+        "leave-start": { type: "string" },
+        "leave-end": { type: "string" },
         "clock-in": { type: "string" },
         "clock-out": { type: "string" },
         "break-start": { type: "string" },
@@ -414,7 +416,14 @@ function parsePersonalApplicationCreateOptions(
       { exitCode: 2 },
     );
   }
-  for (const name of ["clock-in", "clock-out", "break-start", "break-end"] as const) {
+  for (const name of [
+    "leave-start",
+    "leave-end",
+    "clock-in",
+    "clock-out",
+    "break-start",
+    "break-end",
+  ] as const) {
     const value = parsed.values[name];
     if (value !== undefined && (typeof value !== "string" || !/^\d{2}:\d{2}$/.test(value))) {
       throw new CliError(
@@ -438,6 +447,12 @@ function parsePersonalApplicationCreateOptions(
     ...(typeof parsed.values.reason === "string" ? { reason: parsed.values.reason } : {}),
     ...(typeof parsed.values["leave-type"] === "string"
       ? { leaveType: parsed.values["leave-type"] }
+      : {}),
+    ...(typeof parsed.values["leave-start"] === "string"
+      ? { leaveStart: parsed.values["leave-start"] }
+      : {}),
+    ...(typeof parsed.values["leave-end"] === "string"
+      ? { leaveEnd: parsed.values["leave-end"] }
       : {}),
     ...(typeof parsed.values["clock-in"] === "string"
       ? { clockIn: parsed.values["clock-in"] }

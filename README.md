@@ -198,9 +198,11 @@ npm run freee -- monthly commit-action --action submit|withdraw \
 
 # Current employee applications: inspect options, prepare, review, then commit
 npm run freee -- requests prepare-create --kind leave --date YYYY-MM-DD \
-  --leave-type "EXACT_FREEE_LABEL" --reason "REASON"
+  --leave-type "EXACT_FREEE_LABEL" \
+  [--leave-start HH:MM --leave-end HH:MM] --reason "REASON"
 npm run freee -- requests commit-create --kind leave --date YYYY-MM-DD \
-  --leave-type "EXACT_FREEE_LABEL" --reason "REASON" \
+  --leave-type "EXACT_FREEE_LABEL" \
+  [--leave-start HH:MM --leave-end HH:MM] --reason "REASON" \
   --fingerprint PREVIEW_SHA256 --confirm
 npm run freee -- requests prepare-create --kind work-time-correction \
   --date YYYY-MM-DD --clock-in HH:MM --clock-out HH:MM \
@@ -215,7 +217,7 @@ npm run freee -- approvals commit-action --id APPLICATION_NO \
   --action approve|return --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-Commands emit JSON and identify the selected business backend. Before a real punch, the service rechecks the available action using the same backend. Before an application action, it rereads the complete detail and requires the SHA-256 fingerprint to match the read-only preview. An unavailable action, changed detail, ambiguous page, or missing confirmation stops before an API POST or browser click.
+Commands emit JSON and identify the selected business backend. Before a real punch, the service rechecks the available action using the same backend. Before an application action, it rereads the complete detail and requires the SHA-256 fingerprint to match the read-only preview. An unavailable action, changed detail, ambiguous page, or missing confirmation stops before an API POST or browser click. If a commit returns no complete JSON envelope, treat its result as unknown and never retry the write; use the corresponding read-only status, list, or detail command to verify the exact target.
 
 MCP and CLI writes follow the same safety model. Every real action must start with a prepare tool or command that shows the target, action, content, and fingerprint. A commit is allowed only after the user approves that exact action in a new current message. Development requests, testing, messages such as “continue” or “handle it,” and approval from an earlier message do not count. An unknown write result is never retried automatically.
 
@@ -235,7 +237,7 @@ Monthly writes use the same two-step safety model as other writes. `monthly prep
 
 Call `requests options` before creating an application. With `--date`, it reads the exact leave types configured by the company for that date. Leave and one-segment work-time correction forms are supported; a work-time correction may include one optional break pair. The current test company does not enable `残業`, so the capability result reports overtime as unavailable and this version does not guess or bypass an unverified overtime form.
 
-Creation and withdrawal use separate prepare and commit commands. Prepare fills the official form, verifies the selected date, values, leave type, and approval route, and returns a SHA-256 fingerprint without clicking `申請` or `申請を取り下げる`. Commit reconstructs the same preview, stops on any change, requires explicit current-message approval, clicks once, and verifies one new pending/approved application or the exact withdrawn application in `差戻し`. An unknown result is never retried automatically.
+Creation and withdrawal use separate prepare and commit commands. Prepare fills the official form, verifies the selected date, values, leave type, and approval route, and returns a SHA-256 fingerprint without clicking `申請` or `申請を取り下げる`. Commit reconstructs the same preview, stops on any change, requires explicit current-message approval, clicks once, preserves the resulting detail page, and verifies one new pending/approved application or the exact withdrawn application in `差戻し`. An unknown result is never retried automatically.
 
 ## Employee application handling
 
@@ -246,7 +248,7 @@ A single application write has two separate steps:
 1. `approvals prepare-action` reads the current full detail, verifies that the requested button is available, and returns a preview and content fingerprint without clicking a business control.
 2. The agent may call `approvals commit-action ... --confirm` with the same application number, action, and fingerprint only after the user reviews the applicant, type, target date, content, reason, and automatic checks and explicitly requests approval or return in the current message.
 
-Before committing, the CLI rereads the detail. A fingerprint mismatch, missing button, application processed by someone else, or new comment stops the operation and requires a new preview. After the click, the application is reread through the synchronized paginated workflow and must expose the exact expected `承認済` or `差戻し` state. A disappeared or unverifiable result is reported as unknown and must never be retried automatically. Batch approval is not supported, and development tests never perform real approvals or returns.
+Before committing, the CLI rereads the detail. A fingerprint mismatch, missing button, application processed by someone else, or new comment stops the operation and requires a new preview. After the click, the application is reread through the synchronized paginated workflow and must expose the exact expected `承認済` or `差戻し` state. When a self-application leaves the manager history after return, the exact same No. and immutable target fields may instead be verified in the employee history. An application missing from both workflows, or any mismatched target, is reported as unknown and must never be retried automatically. Batch approval is not supported, and development tests never perform real approvals or returns.
 
 ## Backend selection
 
@@ -339,6 +341,8 @@ In headless mode, the runtime derives the User-Agent from the selected local Chr
 When MCP first discovers that web credentials are missing, `freee_auth_status` or another tool returns the local setup command. The agent may only show that command to the user; it must never request or collect the username or password in chat.
 
 The persistent browser profile defaults to `~/.freee-agent/playwright-profile` and is restricted to the current user. The CLI rejects a profile configured inside the repository.
+
+For an explicitly supervised source-development diagnostic only, set `FREEE_BROWSER_DIAGNOSTIC_DIR` to a private temporary directory outside the repository. Personal-application preparation and submission then capture numbered full-page screenshots around the controlled form and submit steps. The directory and image files are restricted to the current user, are never enabled by default, and must never be committed or attached to a public issue without reviewing and redacting personal data.
 
 ## Agent Skill
 

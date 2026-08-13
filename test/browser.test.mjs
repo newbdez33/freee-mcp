@@ -552,7 +552,7 @@ test("Playwright approval commit stops when the prepared detail fingerprint chan
   assert.deepEqual(state.clicks, []);
 });
 
-test("Playwright approval commit reports an unknown result when the clicked item disappears", async () => {
+test("Playwright approval commit reports unknown when the item disappears from both workflows", async () => {
   const { client, state } = createFakeBrowser([]);
   const detail = {
     application: {
@@ -580,6 +580,11 @@ test("Playwright approval commit reports an unknown result when the clicked item
     }
     throw new CliError("APPROVAL_NOT_FOUND", "missing after click", { exitCode: 2 });
   };
+  client.getPersonalApplicationDetail = async () => {
+    throw new CliError("PERSONAL_APPLICATION_NOT_FOUND", "missing from employee history", {
+      exitCode: 2,
+    });
+  };
   client.page.getByRole = (_role, options) => {
     assert.equal(options.name, "承認");
     return {
@@ -595,6 +600,70 @@ test("Playwright approval commit reports an unknown result when the clicked item
     (error) => error.code === "APPROVAL_ACTION_RESULT_UNKNOWN",
   );
   assert.deepEqual(state.clicks, ["approve"]);
+});
+
+test("Playwright approval return verifies the current user's item through employee history", async () => {
+  const { client, state } = createFakeBrowser([]);
+  const detail = {
+    application: {
+      id: "1234",
+      status: "未承認",
+      applicant: "申請者 A",
+      type: "休暇",
+      targetDate: "2026/08/17",
+      content: "有休 全休",
+      reason: "return validation",
+      appliedAt: "2026/08/13",
+      currentApprover: "承認者 A",
+      checkResult: null,
+    },
+    fields: [],
+    tables: [],
+    detailLines: ["申請内容"],
+    availableActions: ["approve", "return"],
+  };
+  let detailReads = 0;
+  client.getApprovalDetail = async () => {
+    detailReads += 1;
+    if (detailReads === 1) {
+      return detail;
+    }
+    throw new CliError("APPROVAL_NOT_FOUND", "missing from manager history", { exitCode: 2 });
+  };
+  client.getPersonalApplicationDetail = async () => ({
+    application: {
+      ...detail.application,
+      status: "差戻し",
+      applicant: null,
+      currentApprover: null,
+    },
+    fields: [],
+    tables: [],
+    detailLines: ["申請者 Aさんが休暇申請を差戻ししました。"],
+    availableActions: [],
+  });
+  client.page.getByRole = (_role, options) => {
+    assert.equal(options.name, "申請者へ差し戻す");
+    return {
+      async count() { return 1; },
+      async isVisible() { return true; },
+      async isEnabled() { return true; },
+      async click() { state.clicks.push("return"); },
+    };
+  };
+
+  const result = await client.commitApprovalAction(
+    "1234",
+    "return",
+    createApprovalFingerprint(detail, "return"),
+    true,
+  );
+
+  assert.equal(result.verified, true);
+  assert.equal(result.result.application.status, "差戻し");
+  assert.equal(result.result.application.applicant, "申請者 A");
+  assert.deepEqual(result.result.availableActions, []);
+  assert.deepEqual(state.clicks, ["return"]);
 });
 
 test("Playwright monthly commit never clicks without explicit confirmation", async () => {

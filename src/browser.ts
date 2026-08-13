@@ -949,20 +949,40 @@ export class FreeeBrowserClient {
         { details: { id, action }, exitCode: 2 },
       );
     }
+    const expectedStatus = action === "approve" ? "承認済" : "差戻し";
     let result: BrowserApprovalDetail;
     try {
       result = await this.getApprovalDetail(id);
     } catch (error) {
-      if (error instanceof CliError && error.code === "APPROVAL_NOT_FOUND") {
+      if (!(error instanceof CliError && error.code === "APPROVAL_NOT_FOUND")) {
+        throw error;
+      }
+      let personalResult: BrowserPersonalApplicationDetail;
+      try {
+        personalResult = await this.getPersonalApplicationDetail(id);
+      } catch {
         throw new CliError(
           "APPROVAL_ACTION_RESULT_UNKNOWN",
-          "The application left the visible approval queue after the click, but freee did not expose a verifiable final state. Do not retry; inspect the application in freee before any further write.",
+          "The application left the manager workflow after the click, but freee did not expose the exact application in the employee workflow. Do not retry; inspect the application in freee before any further write.",
           { details: { id, action }, exitCode: 2 },
         );
       }
-      throw error;
+      if (!isSameApprovalTarget(before.application, personalResult.application)) {
+        throw new CliError(
+          "APPROVAL_ACTION_RESULT_UNKNOWN",
+          "The employee workflow exposed a different application after the manager action. Do not retry; inspect the application in freee before any further write.",
+          { details: { id, action }, exitCode: 2 },
+        );
+      }
+      result = {
+        ...personalResult,
+        application: {
+          ...personalResult.application,
+          applicant: before.application.applicant,
+        },
+        availableActions: [],
+      };
     }
-    const expectedStatus = action === "approve" ? "承認済" : "差戻し";
     if (result.availableActions.includes(action) || createApprovalFingerprint(result, action) === fingerprint) {
       throw new CliError(
         "APPROVAL_ACTION_RESULT_UNKNOWN",
@@ -2534,6 +2554,18 @@ export class FreeeBrowserClient {
       );
     }
   }
+}
+
+function isSameApprovalTarget(
+  before: BrowserApprovalSummary,
+  after: BrowserApprovalSummary,
+): boolean {
+  return before.id === after.id
+    && before.type === after.type
+    && before.targetDate === after.targetDate
+    && before.content === after.content
+    && before.reason === after.reason
+    && before.appliedAt === after.appliedAt;
 }
 
 async function prepareProfileDirectory(profileDirectory: string): Promise<void> {

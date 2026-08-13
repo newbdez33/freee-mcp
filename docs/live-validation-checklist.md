@@ -35,7 +35,7 @@ Every item below requires a dedicated test case, a reviewed prepare result, and 
 - [x] **LV-W05 — Personal leave creation.** Use an agreed future test date and exact leave label, commit once, and verify exactly one new pending or approved application with matching detail. Validated on 2026-08-13 with timed half-day application No. `10032` for `2026-08-14`.
 - [ ] **LV-W06 — Personal work-time correction creation.** Use an agreed test record that will not alter payroll unexpectedly, commit once, and verify exactly one matching application. Prefer returning or withdrawing the request before approval when the test goal is only workflow validation.
 - [x] **LV-W07 — Personal application withdrawal.** While a dedicated test application is still pending, prepare and commit `申請を取り下げる`, then verify the same No. is `差戻し` and no longer exposes `withdraw`. Validated with application No. `10032` on 2026-08-13.
-- [ ] **LV-W08 — Manager return action.** Create a dedicated pending test application, prepare `return`, commit once, and verify the same No. becomes `差戻し`. The manager approval action is already live-validated; only return remains.
+- [x] **LV-W08 — Manager return action.** Create a dedicated pending test application, prepare `return`, commit once, and verify the same No. becomes `差戻し`. Validated on 2026-08-13 with full-day leave application No. `10035`; the exact employee-side detail and audit comment independently confirmed the returned state without retrying the write.
 
 ## Priority 1: real read and state variants
 

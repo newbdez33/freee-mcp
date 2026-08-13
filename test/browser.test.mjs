@@ -452,6 +452,50 @@ test("Playwright approval list navigates to one explicit later page", async () =
   assert.equal(result.applicationCount, 1);
 });
 
+test("Playwright approval detail waits for the route to render after a row click", async () => {
+  const { client } = createFakeBrowser([]);
+  let detailVisible = false;
+  let waitedForDetail = false;
+  const row = {
+    locator() {
+      return {
+        nth() {
+          return { async innerText() { return "1234"; } };
+        },
+      };
+    },
+    async isVisible() { return true; },
+    async click() {},
+  };
+  client.page.locator = (selector) => {
+    assert.equal(selector, "table tbody tr.vb-tableListRow--clickable");
+    return {
+      async count() { return 1; },
+      nth() { return row; },
+    };
+  };
+  client.page.getByText = (text, options) => {
+    assert.equal(text, "一覧に戻る");
+    assert.equal(options.exact, true);
+    return {
+      async waitFor(options) {
+        assert.equal(options.state, "visible");
+        waitedForDetail = true;
+        detailVisible = true;
+      },
+      async count() { return detailVisible ? 1 : 0; },
+      async isVisible() { return detailVisible; },
+    };
+  };
+
+  await client.openApprovalRow("1234", {
+    headers: ["ステータス", "No.", "種別"],
+    rows: [["未承認", "1234", "休暇"]],
+  });
+
+  assert.equal(waitedForDetail, true);
+});
+
 test("Playwright personal application list uses the employee returned-state filter", async () => {
   const { client, state } = createFakePersonalApplicationBrowser();
   const result = await client.getPersonalApplications("returned", 1);

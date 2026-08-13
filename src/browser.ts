@@ -2209,13 +2209,14 @@ export class FreeeBrowserClient {
       );
     }
     await matches[0]!.click();
-    await this.page.waitForTimeout(500);
     const back = this.page.getByText("一覧に戻る", { exact: true });
+    await back.waitFor({ state: "visible", timeout: this.config.navigationTimeoutMs })
+      .catch(() => undefined);
     if (await back.count() !== 1 || !await back.isVisible()) {
       throw new CliError(
         "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
         "freee did not open one unambiguous application detail view.",
-        { details: { id }, exitCode: 2 },
+        { details: { id, page: safePageLocation(this.page.url()) }, exitCode: 2 },
       );
     }
   }

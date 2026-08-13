@@ -227,9 +227,9 @@ The Playwright backend supports System Keychain credentials, persistent login, p
 
 ## Monthly attendance applications
 
-`monthly status` reads the month currently selected in freee's attendance calendar and returns its normalized state, freee status label, matching application when present, and available actions. An optional `--period YYYY-MM` is a guard: it must match the selected month and does not silently navigate to another period.
+`monthly status` reads the month currently selected in freee's attendance calendar and returns its normalized state, freee status label, matching application when present, available actions, and visible calendar warnings such as days that still require an application or correction. An optional `--period YYYY-MM` is a guard: it must match the selected month and does not silently navigate to another period. Agents must present non-empty warnings and stop before submission until the user resolves or explicitly reviews them in freee.
 
-Monthly writes use the same two-step safety model as other writes. `monthly prepare-action --action submit` opens the creation form, reads the target month, application route, approval steps, and checks, but does not click the final `申請` button. `--action withdraw` reads the exact pending application and verifies that `申請を取り下げる` is available. The commit command rereads the complete preview, requires the unchanged fingerprint and explicit current-message confirmation, performs one click, and verifies the resulting monthly state. An ambiguous or unknown result is never retried automatically.
+Monthly writes use the same two-step safety model as other writes. `monthly prepare-action --action submit` opens the creation form, reads the target month, application route, approval steps, form checks, and calendar warnings, but does not click the final `申請` button. Calendar warnings are bound into the fingerprint. `--action withdraw` reads the exact pending application and verifies that `申請を取り下げる` is available. The commit command rereads the complete preview, requires the unchanged fingerprint and explicit current-message confirmation, performs one click, and verifies the resulting monthly state. An ambiguous or unknown result is never retried automatically.
 
 ## Personal attendance applications
 
@@ -342,7 +342,7 @@ When MCP first discovers that web credentials are missing, `freee_auth_status` o
 
 The persistent browser profile defaults to `~/.freee-agent/playwright-profile` and is restricted to the current user. The CLI rejects a profile configured inside the repository.
 
-For an explicitly supervised source-development diagnostic only, set `FREEE_BROWSER_DIAGNOSTIC_DIR` to a private temporary directory outside the repository. Personal-application preparation and submission then capture numbered full-page screenshots around the controlled form and submit steps. The directory and image files are restricted to the current user, are never enabled by default, and must never be committed or attached to a public issue without reviewing and redacting personal data.
+For an explicitly supervised source-development diagnostic only, set `FREEE_BROWSER_DIAGNOSTIC_DIR` to a private temporary directory outside the repository. Personal-application preparation and submission capture numbered full-page screenshots around the controlled form and submit steps, while monthly status reads capture the selected attendance calendar state. The directory and image files are restricted to the current user, are never enabled by default, and must never be committed or attached to a public issue without reviewing and redacting personal data.
 
 ## Agent Skill
 

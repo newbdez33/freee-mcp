@@ -110,7 +110,7 @@ npm run freee -- requests detail --id APPLICATION_NO
 
 `team status --date` currently accepts a date only when its month matches the month selected by freee. `--company-id` and `--group-id` are not accepted in the Playwright branch; the CLI uses the company and visible management range already selected by freee and never guesses another one. `me` is not implemented for Playwright.
 
-`monthly status --period` reads the personal month selected in freee's attendance calendar. The period is a safety guard and must match that selected month; the command does not silently navigate to another month. It returns `unsubmitted`, `pending`, `approved`, or `returned`, preserves the corresponding freee label, identifies the exact matching monthly application when present, and lists only currently available actions.
+`monthly status --period` reads the personal month selected in freee's attendance calendar. The period is a safety guard and must match that selected month; the command does not silently navigate to another month. It returns `unsubmitted`, `pending`, `approved`, or `returned`, preserves the corresponding freee label, identifies the exact matching monthly application when present, lists only currently available actions, and returns visible calendar warnings. Present every warning and stop before commit while warnings remain unless the user has resolved or explicitly reviewed them in freee.
 
 ## Monthly attendance actions
 
@@ -131,7 +131,7 @@ npm run freee -- monthly commit-action \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-The commit rereads the complete preview before one click. A changed period, state, route, approval step, check, action availability, or fingerprint stops before the click. A successful submit must be visible as `pending` or `approved` with one application; a successful withdrawal must be visible as `returned`. An unknown result is never retried automatically.
+The commit rereads the complete preview before one click. A changed period, state, route, approval step, form check, calendar warning, action availability, or fingerprint stops before the click. A successful submit must be visible as `pending` or `approved` with one application; a successful withdrawal must be visible as `returned`. An unknown result is never retried automatically.
 
 ## Personal attendance applications
 

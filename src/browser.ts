@@ -20,6 +20,7 @@ import {
   createMonthlyFingerprint,
   parseMonthlyCalendarSnapshot,
   periodFromMonthlyTargetDate,
+  selectMonthlyStatusLabels,
   type BrowserMonthlyAction,
   type BrowserMonthlyPreview,
   type BrowserMonthlyStatus,
@@ -366,6 +367,7 @@ export class FreeeBrowserClient {
   async getMonthlyStatus(period?: string): Promise<BrowserMonthlyStatus> {
     await this.ensureAuthenticated();
     await this.openAttendanceCalendar();
+    await this.captureDiagnosticScreenshot("monthly-status");
     const parsed = parseMonthlyCalendarSnapshot(
       await this.readMonthlyCalendarSnapshot(),
       period,
@@ -1234,23 +1236,44 @@ export class FreeeBrowserClient {
   private async readMonthlyCalendarSnapshot(): Promise<{
     periodLabels: string[];
     statusLabels: string[];
+    warnings: string[];
     createActionCount: number;
   }> {
     this.assertOfficialPage();
     const create = this.page.locator('[data-testid="申請作成ボタン"]');
     const snapshot = await this.page.evaluate(() => {
-      const normalize = (value: string) => value.trim().replace(/\s+/g, " ");
+      const normalize = (value: string | null | undefined) =>
+        (value ?? "").trim().replace(/\s+/g, " ");
       const bodyText = document.body?.innerText ?? "";
       const periodLabels = Array.from(
         new Set(bodyText.match(/20\d{2}年\d{1,2}月\d{1,2}日払い\s*[（(][^\n]{1,100}勤務分\s*[）)]/g) ?? []),
       ).map(normalize);
-      const statusLabels = Array.from(
-        new Set(bodyText.match(/未申請|未承認|申請中|承認済|差戻し/g) ?? []),
-      );
-      return { periodLabels, statusLabels };
+      const monthlyHeading = Array.from(document.querySelectorAll<HTMLElement>("body *"))
+        .filter((element) => element.getClientRects().length > 0)
+        .find((element) => {
+          const value = normalize(element.innerText);
+          return (value === "月次勤怠締め申請" || value === "月次勤怠締めの申請")
+            && !Array.from(element.children).some((child) =>
+              child instanceof HTMLElement && normalize(child.innerText) === value);
+        });
+      const statusScopeTexts: string[] = [];
+      for (let scope = monthlyHeading?.parentElement; scope; scope = scope.parentElement) {
+        const scopeText = normalize(scope.innerText ?? "");
+        if (scopeText.length > 0) {
+          statusScopeTexts.push(scopeText);
+        }
+      }
+      const warnings = Array.from(document.querySelectorAll<HTMLElement>("body *"))
+        .filter((element) => element.getClientRects().length > 0)
+        .map((element) => normalize(element.innerText))
+        .filter((value) => /^申請または修正が必要な勤怠が\d+日あります。?$/.test(value))
+        .filter((value, index, values) => values.indexOf(value) === index);
+      return { periodLabels, statusScopeTexts, warnings };
     });
     return {
-      ...snapshot,
+      periodLabels: snapshot.periodLabels,
+      statusLabels: selectMonthlyStatusLabels(snapshot.statusScopeTexts),
+      warnings: snapshot.warnings,
       createActionCount: await create.count() === 1 && await create.isVisible() && await create.isEnabled()
         ? 1
         : 0,

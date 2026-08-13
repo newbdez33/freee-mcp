@@ -34,7 +34,7 @@ Every item below requires a dedicated test case, a reviewed prepare result, and 
 - [ ] **LV-W04 — Monthly withdrawal.** Only if LV-W03 remains pending, prepare the exact withdrawal, commit once, and verify the month and application become `returned`. Skip rather than improvise if the submission is auto-approved.
 - [x] **LV-W05 — Personal leave creation.** Use an agreed future test date and exact leave label, commit once, and verify exactly one new pending or approved application with matching detail. Validated on 2026-08-13 with timed half-day application No. `10032` for `2026-08-14`.
 - [ ] **LV-W06 — Personal work-time correction creation.** Use an agreed test record that will not alter payroll unexpectedly, commit once, and verify exactly one matching application. Prefer returning or withdrawing the request before approval when the test goal is only workflow validation.
-- [ ] **LV-W07 — Personal application withdrawal.** While a dedicated test application is still pending, prepare and commit `申請を取り下げる`, then verify the same No. is `差戻し` and no longer exposes `withdraw`.
+- [x] **LV-W07 — Personal application withdrawal.** While a dedicated test application is still pending, prepare and commit `申請を取り下げる`, then verify the same No. is `差戻し` and no longer exposes `withdraw`. Validated with application No. `10032` on 2026-08-13.
 - [ ] **LV-W08 — Manager return action.** Create a dedicated pending test application, prepare `return`, commit once, and verify the same No. becomes `差戻し`. The manager approval action is already live-validated; only return remains.
 
 ## Priority 1: real read and state variants
@@ -42,7 +42,7 @@ Every item below requires a dedicated test case, a reviewed prepare result, and 
 These validations are read-only or stop before a business write.
 
 - [x] **LV-R01 — Non-empty personal pending list and detail.** With a dedicated request pending, verify the `申請中` filter, exact No. lookup, detail fields, and `withdraw` availability. Validated with application No. `10032` on 2026-08-13.
-- [ ] **LV-R02 — Non-empty personal returned list and detail.** After LV-W07 or LV-W08, verify the `差戻し` filter and exact detail. Current live checks covered only an empty returned list.
+- [x] **LV-R02 — Non-empty personal returned list and detail.** After LV-W07 or LV-W08, verify the `差戻し` filter and exact detail. Validated with application No. `10032` on 2026-08-13.
 - [ ] **LV-R03 — Personal application pagination beyond page 1.** Validate page 2 when the employee history exceeds one freee page. The current account has only 40 items, so this path is fixture-tested only.
 - [ ] **LV-R04 — Monthly state transitions.** Record `unsubmitted`, `pending`, `approved`, and `returned` reads as those states become naturally available. Do not create artificial payroll state merely to fill the matrix.
 - [x] **LV-R05 — Half-day and special-leave form variants.** Prepare, but do not submit, each enabled label such as `有休（半休）` and `夏季休暇（有給）`; verify whether freee adds fields that the current generic leave form must capture. Validated on 2026-08-13 without submitting; `有休（半休）` exposes and now binds an explicit leave time range.

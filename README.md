@@ -340,6 +340,8 @@ When MCP first discovers that web credentials are missing, `freee_auth_status` o
 
 The persistent browser profile defaults to `~/.freee-agent/playwright-profile` and is restricted to the current user. The CLI rejects a profile configured inside the repository.
 
+For an explicitly supervised source-development diagnostic only, set `FREEE_BROWSER_DIAGNOSTIC_DIR` to a private temporary directory outside the repository. Personal-application preparation and submission then capture numbered full-page screenshots around the controlled form and submit steps. The directory and image files are restricted to the current user, are never enabled by default, and must never be committed or attached to a public issue without reviewing and redacting personal data.
+
 ## Agent Skill
 
 The canonical Skill lives at `skills/freee`:

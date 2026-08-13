@@ -1,5 +1,5 @@
 import { chmod, mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
 import { chromium, type BrowserContext, type Locator, type Page, type Response } from "playwright";
@@ -96,6 +96,7 @@ export interface PlaywrightRuntimeConfig {
   headless: boolean;
   channel?: string;
   profileDirectory: string;
+  diagnosticDirectory?: string;
   credentialService: string;
   navigationTimeoutMs: number;
   interactionTimeoutMs: number;
@@ -118,13 +119,32 @@ export function readPlaywrightRuntimeConfig(
   const profileDirectory = resolve(
     configuredProfile || join(homedir(), ".freee-agent", "playwright-profile"),
   );
-  assertProfileOutsideRepository(profileDirectory, cwd);
+  assertPrivatePathOutsideRepository(
+    profileDirectory,
+    cwd,
+    "FREEE_BROWSER_PROFILE_DIR",
+    "BROWSER_PROFILE_UNSAFE",
+  );
+  const configuredDiagnosticDirectory = env.FREEE_BROWSER_DIAGNOSTIC_DIR?.trim();
+  const diagnosticDirectory = configuredDiagnosticDirectory
+    ? resolve(configuredDiagnosticDirectory)
+    : undefined;
+  if (diagnosticDirectory) {
+    assertPrivatePathOutsideRepository(
+      diagnosticDirectory,
+      cwd,
+      "FREEE_BROWSER_DIAGNOSTIC_DIR",
+      "BROWSER_DIAGNOSTIC_PATH_UNSAFE",
+    );
+    assertDiagnosticPathIsNotBroad(diagnosticDirectory);
+  }
   return {
     headless: parseBoolean(env.FREEE_BROWSER_HEADLESS, true, "FREEE_BROWSER_HEADLESS"),
     ...(env.FREEE_BROWSER_CHANNEL?.trim() === ""
       ? {}
       : { channel: env.FREEE_BROWSER_CHANNEL?.trim() || "chrome" }),
     profileDirectory,
+    ...(diagnosticDirectory ? { diagnosticDirectory } : {}),
     credentialService: env.FREEE_WEB_CREDENTIAL_SERVICE?.trim() || "freee-agent-web",
     navigationTimeoutMs: parseTimeout(
       env.FREEE_BROWSER_TIMEOUT_MS,
@@ -168,6 +188,7 @@ async function deriveHeadlessChromeUserAgent(channel?: string): Promise<string> 
 
 export class FreeeBrowserClient {
   private preparedPersonalApplicationFirstPageIds: string[] = [];
+  private diagnosticScreenshotSequence = 0;
 
   private constructor(
     private readonly context: BrowserContext,
@@ -181,6 +202,9 @@ export class FreeeBrowserClient {
     credentials: WebCredentialProvider = new SystemWebCredentialStore(config.credentialService),
   ): Promise<FreeeBrowserClient> {
     await prepareProfileDirectory(config.profileDirectory);
+    if (config.diagnosticDirectory) {
+      await prepareDiagnosticDirectory(config.diagnosticDirectory);
+    }
     try {
       const userAgent = config.headless
         ? await deriveHeadlessChromeUserAgent(config.channel)
@@ -688,10 +712,12 @@ export class FreeeBrowserClient {
         { exitCode: 2 },
       );
     }
+    await this.captureDiagnosticScreenshot("personal-application-before-submit");
     try {
       await submit.click({ timeout: this.config.navigationTimeoutMs });
       await this.page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
       await this.page.waitForTimeout(1_000);
+      await this.captureDiagnosticScreenshot("personal-application-after-submit-click");
     } catch {
       throw new CliError(
         "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
@@ -702,6 +728,7 @@ export class FreeeBrowserClient {
     let result: BrowserPersonalApplicationDetail;
     try {
       const after = await this.getPersonalApplications("all", 1);
+      await this.captureDiagnosticScreenshot("personal-application-after-submit-list");
       const existingIds = new Set(this.preparedPersonalApplicationFirstPageIds);
       const created = after.applications.filter((application) => !existingIds.has(application.id));
       if (created.length !== 1) {
@@ -1342,6 +1369,7 @@ export class FreeeBrowserClient {
     application: NormalizedPersonalApplicationCreateInput,
   ): Promise<string> {
     await this.selectApplicationDate("#approval-request-fields-date", application.date);
+    await this.captureDiagnosticScreenshot("personal-application-date-selected");
     const leaveTypes = await this.readLeaveTypes();
     if (!application.leaveType || !leaveTypes.includes(application.leaveType)) {
       throw new CliError(
@@ -1368,6 +1396,7 @@ export class FreeeBrowserClient {
       );
     }
     await this.page.locator('[data-testid="申請理由"]').fill(application.reason);
+    await this.captureDiagnosticScreenshot("personal-application-fields-complete");
     return this.readPersonalApplicationRoute();
   }
 
@@ -1508,6 +1537,25 @@ export class FreeeBrowserClient {
       );
     }
     return value;
+  }
+
+  private async captureDiagnosticScreenshot(label: string): Promise<void> {
+    if (!this.config.diagnosticDirectory) {
+      return;
+    }
+    this.diagnosticScreenshotSequence += 1;
+    const sequence = String(this.diagnosticScreenshotSequence).padStart(2, "0");
+    const screenshotPath = join(this.config.diagnosticDirectory, `${sequence}-${label}.png`);
+    try {
+      await this.page.screenshot({ path: screenshotPath, fullPage: true, animations: "disabled" });
+      await chmod(screenshotPath, 0o600);
+    } catch {
+      throw new CliError(
+        "BROWSER_DIAGNOSTIC_CAPTURE_FAILED",
+        "The explicitly requested private Playwright diagnostic screenshot could not be saved. The current operation stopped.",
+        { details: { label }, exitCode: 2 },
+      );
+    }
   }
 
   private async findEmployeeMonthlyApplication(period: string): Promise<BrowserApprovalSummary> {
@@ -2390,12 +2438,41 @@ async function prepareProfileDirectory(profileDirectory: string): Promise<void> 
   }
 }
 
-function assertProfileOutsideRepository(profileDirectory: string, cwd: string): void {
-  const pathFromRepository = relative(resolve(cwd), profileDirectory);
+async function prepareDiagnosticDirectory(diagnosticDirectory: string): Promise<void> {
+  try {
+    await mkdir(diagnosticDirectory, { recursive: true, mode: 0o700 });
+    await chmod(diagnosticDirectory, 0o700);
+  } catch {
+    throw new CliError(
+      "BROWSER_DIAGNOSTIC_DIRECTORY_UNAVAILABLE",
+      "The private Playwright diagnostic screenshot directory could not be prepared.",
+      { exitCode: 2 },
+    );
+  }
+}
+
+function assertPrivatePathOutsideRepository(
+  privatePath: string,
+  cwd: string,
+  settingName: string,
+  errorCode: string,
+): void {
+  const pathFromRepository = relative(resolve(cwd), privatePath);
   if (pathFromRepository === "" || (!pathFromRepository.startsWith("..") && !isAbsolute(pathFromRepository))) {
     throw new CliError(
-      "BROWSER_PROFILE_UNSAFE",
-      "FREEE_BROWSER_PROFILE_DIR must be outside the repository.",
+      errorCode,
+      `${settingName} must be outside the repository.`,
+      { exitCode: 2 },
+    );
+  }
+}
+
+function assertDiagnosticPathIsNotBroad(diagnosticDirectory: string): void {
+  const broadPaths = new Set([resolve("/"), resolve(homedir()), resolve(tmpdir())]);
+  if (broadPaths.has(resolve(diagnosticDirectory))) {
+    throw new CliError(
+      "BROWSER_DIAGNOSTIC_PATH_UNSAFE",
+      "FREEE_BROWSER_DIAGNOSTIC_DIR must be a dedicated subdirectory, not a filesystem root, home directory, or shared temporary root.",
       { exitCode: 2 },
     );
   }

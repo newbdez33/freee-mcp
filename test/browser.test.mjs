@@ -368,6 +368,46 @@ test("browser profile must remain outside the repository", () => {
   );
 });
 
+test("browser diagnostic screenshots are opt-in and must remain outside the repository", () => {
+  assert.equal(
+    readPlaywrightRuntimeConfig(
+      { FREEE_BROWSER_PROFILE_DIR: "/tmp/freee-profile" },
+      "/workspace/project",
+    ).diagnosticDirectory,
+    undefined,
+  );
+  assert.throws(
+    () => readPlaywrightRuntimeConfig(
+      {
+        FREEE_BROWSER_PROFILE_DIR: "/tmp/freee-profile",
+        FREEE_BROWSER_DIAGNOSTIC_DIR: "/workspace/project/diagnostics",
+      },
+      "/workspace/project",
+    ),
+    (error) => error.code === "BROWSER_DIAGNOSTIC_PATH_UNSAFE",
+  );
+  assert.throws(
+    () => readPlaywrightRuntimeConfig(
+      {
+        FREEE_BROWSER_PROFILE_DIR: "/tmp/freee-profile",
+        FREEE_BROWSER_DIAGNOSTIC_DIR: "/tmp",
+      },
+      "/workspace/project",
+    ),
+    (error) => error.code === "BROWSER_DIAGNOSTIC_PATH_UNSAFE",
+  );
+  assert.equal(
+    readPlaywrightRuntimeConfig(
+      {
+        FREEE_BROWSER_PROFILE_DIR: "/tmp/freee-profile",
+        FREEE_BROWSER_DIAGNOSTIC_DIR: "/tmp/freee-diagnostics",
+      },
+      "/workspace/project",
+    ).diagnosticDirectory,
+    "/tmp/freee-diagnostics",
+  );
+});
+
 test("Playwright clock action never clicks without explicit confirmation", async () => {
   const { client, state } = createFakeBrowser(["in"]);
 

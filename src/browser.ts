@@ -2549,8 +2549,27 @@ export class FreeeBrowserClient {
     });
   }
 
+  private async readStableApprovalDetailSnapshot(): Promise<
+    Pick<BrowserApprovalDetail, "fields" | "tables" | "detailLines">
+  > {
+    let previous = await this.readApprovalDetailSnapshot();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await this.page.waitForTimeout(200);
+      const current = await this.readApprovalDetailSnapshot();
+      if (JSON.stringify(current) === JSON.stringify(previous)) {
+        return current;
+      }
+      previous = current;
+    }
+    throw new CliError(
+      "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+      "The freee approval detail did not settle into one stable preview. No action was taken.",
+      { exitCode: 2 },
+    );
+  }
+
   private async readApprovalDetail(summary: BrowserApprovalSummary): Promise<BrowserApprovalDetail> {
-    const snapshot = await this.readApprovalDetailSnapshot();
+    const snapshot = await this.readStableApprovalDetailSnapshot();
     const availableActions: BrowserApprovalAction[] = [];
     for (const [action, label] of [
       ["approve", "承認"],

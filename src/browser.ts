@@ -2219,6 +2219,8 @@ export class FreeeBrowserClient {
         { details: { id, page: safePageLocation(this.page.url()) }, exitCode: 2 },
       );
     }
+    await this.page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+    await this.page.waitForTimeout(250);
   }
 
   private async readApprovalDetailSnapshot(): Promise<

@@ -456,6 +456,7 @@ test("Playwright approval detail waits for the route to render after a row click
   const { client } = createFakeBrowser([]);
   let detailVisible = false;
   let waitedForDetail = false;
+  let waitedForNetworkIdle = false;
   const row = {
     locator() {
       return {
@@ -487,6 +488,11 @@ test("Playwright approval detail waits for the route to render after a row click
       async isVisible() { return detailVisible; },
     };
   };
+  client.page.waitForLoadState = async (state, options) => {
+    assert.equal(state, "networkidle");
+    assert.equal(options.timeout, 5_000);
+    waitedForNetworkIdle = true;
+  };
 
   await client.openApprovalRow("1234", {
     headers: ["ステータス", "No.", "種別"],
@@ -494,6 +500,7 @@ test("Playwright approval detail waits for the route to render after a row click
   });
 
   assert.equal(waitedForDetail, true);
+  assert.equal(waitedForNetworkIdle, true);
 });
 
 test("Playwright personal application list uses the employee returned-state filter", async () => {

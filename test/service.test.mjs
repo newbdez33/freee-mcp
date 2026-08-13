@@ -74,3 +74,26 @@ test("shared service monthly commit requires confirmation before launching a bro
   );
   assert.equal(launches, 0);
 });
+
+test("shared service personal application commits require confirmation before launching a browser", async () => {
+  const service = new FreeeService("playwright");
+  let launches = 0;
+  service.withBrowser = async () => {
+    launches += 1;
+    return {};
+  };
+
+  await assert.rejects(
+    service.commitPersonalApplicationCreate({
+      kind: "leave",
+      date: "2026-08-14",
+      leaveType: "有休",
+    }, "0".repeat(64), false),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  await assert.rejects(
+    service.commitPersonalApplicationWithdraw("100", "0".repeat(64), false),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  assert.equal(launches, 0);
+});

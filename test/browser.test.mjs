@@ -229,6 +229,104 @@ function createApprovalResponse(label, page) {
   };
 }
 
+function createFakePersonalApplicationBrowser() {
+  const state = {
+    selected: false,
+    filter: null,
+    rendered: false,
+    waiter: null,
+    url: "https://p.secure.freee.co.jp/approval_requests",
+  };
+  const page = {
+    url() { return state.url; },
+    getByRole(role, options) {
+      if (role === "tab" && options.name === "申請") {
+        return {
+          async count() { return 1; },
+          async isVisible() { return true; },
+          async getAttribute(name) { return name === "aria-selected" && state.selected ? "true" : "false"; },
+          async click() { state.selected = true; },
+        };
+      }
+      if (role === "button" && ["申請中", "差戻し", "承認済", "全て"].includes(options.name)) {
+        return {
+          async count() { return 1; },
+          async isVisible() { return true; },
+          async getAttribute(name) { return name === "aria-pressed" && state.filter === options.name ? "true" : "false"; },
+          async click() {
+            state.filter = options.name;
+            state.rendered = false;
+            state.waiter?.(createPersonalApplicationResponse(options.name));
+          },
+        };
+      }
+      throw new Error(`unexpected role locator: ${role} ${options.name}`);
+    },
+    waitForResponse(predicate) {
+      return new Promise((resolve, reject) => {
+        state.waiter = (response) => {
+          state.waiter = null;
+          predicate(response) ? resolve(response) : reject(new Error("request predicate mismatch"));
+        };
+      });
+    },
+    async waitForFunction(_predicate, expected) {
+      assert.deepEqual(expected, ["2468"]);
+      state.rendered = true;
+    },
+    async evaluate() {
+      return {
+        headers: [
+          "ステータス", "No.", "種別", "対象日", "申請内容", "申請理由", "申請日",
+          "現在の承認者", "チェック結果",
+        ],
+        rows: state.rendered ? [[
+          "差戻し", "2468", "休暇", "2026/08/14", "有休", "私用", "2026/08/13", "承認者", "-",
+        ]] : [],
+        pageCount: 1,
+      };
+    },
+    async waitForTimeout() {},
+  };
+  const client = new FreeeBrowserClient(
+    { async close() {} },
+    page,
+    { async getCredentials() { throw new Error("credentials must not be read"); } },
+    {
+      headless: true,
+      channel: "chrome",
+      profileDirectory: "/tmp/freee-agent-personal-browser-test",
+      credentialService: "freee-agent-web-test",
+      navigationTimeoutMs: 1_000,
+      interactionTimeoutMs: 1_000,
+    },
+  );
+  client.ensureAuthenticated = async () => {};
+  return { client, state };
+}
+
+function createPersonalApplicationResponse(label) {
+  const status = {
+    "申請中": "in_progress",
+    "差戻し": "draft_and_feedback",
+    "承認済": "approved",
+    "全て": "all",
+  }[label];
+  return {
+    url() {
+      return `https://p.secure.freee.co.jp/api/p/employees/approval_requests/requests?page=1&q%5Bstatus_eq%5D=${status}`;
+    },
+    request() { return { method() { return "GET"; } }; },
+    ok() { return true; },
+    async json() {
+      return {
+        approval_requests: [{ request_code: 2468 }],
+        meta: { current_page: 1, total_pages: 1, total_count: 1, per: 50 },
+      };
+    },
+  };
+}
+
 test("browser main-frame allowlist accepts only the three official HTTPS hosts", () => {
   assert.equal(isAllowedFreeePageUrl("https://p.secure.freee.co.jp/"), true);
   assert.equal(isAllowedFreeePageUrl("https://accounts.secure.freee.co.jp/sessions/new"), true);
@@ -312,6 +410,17 @@ test("Playwright approval list navigates to one explicit later page", async () =
   assert.equal(result.page, 2);
   assert.equal(result.pageCount, 2);
   assert.equal(result.applicationCount, 1);
+});
+
+test("Playwright personal application list uses the employee returned-state filter", async () => {
+  const { client, state } = createFakePersonalApplicationBrowser();
+  const result = await client.getPersonalApplications("returned", 1);
+  assert.equal(state.selected, true);
+  assert.equal(state.filter, "差戻し");
+  assert.equal(result.filter, "returned");
+  assert.equal(result.totalCount, 1);
+  assert.equal(result.applications[0].id, "2468");
+  assert.equal(result.applications[0].status, "差戻し");
 });
 
 test("Playwright approval commit stops before page access without explicit confirmation", async () => {
@@ -411,6 +520,88 @@ test("Playwright monthly commit never clicks without explicit confirmation", asy
   );
   assert.equal(prepares, 0);
   assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright personal application commits never click without explicit confirmation", async () => {
+  const { client, state } = createFakeBrowser([]);
+  await assert.rejects(
+    client.commitPersonalApplicationCreate({
+      kind: "leave",
+      date: "2026-08-14",
+      leaveType: "有休",
+    }, "a".repeat(64), false),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  await assert.rejects(
+    client.commitPersonalApplicationWithdraw("100", "b".repeat(64), false),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright personal application creation binds its preview and verifies one new item", async () => {
+  const { client } = createFakeBrowser([]);
+  let clicks = 0;
+  const fingerprint = "c".repeat(64);
+  client.preparePersonalApplicationCreate = async () => {
+    client.preparedPersonalApplicationFirstPageIds = ["10"];
+    return {
+      action: "create",
+      fingerprint,
+      preview: {
+        application: { kind: "leave", date: "2026-08-14" },
+        existingFirstPage: { count: 1, fingerprint: "d".repeat(64) },
+      },
+    };
+  };
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { clicks += 1; },
+  });
+  client.getPersonalApplications = async () => ({
+    applications: [{ id: "11" }, { id: "10" }],
+  });
+  client.getPersonalApplicationDetail = async (id) => ({
+    application: { id, status: "申請中" },
+    availableActions: ["withdraw"],
+  });
+
+  const result = await client.commitPersonalApplicationCreate({
+    kind: "leave",
+    date: "2026-08-14",
+    leaveType: "有休",
+  }, fingerprint, true);
+  assert.equal(clicks, 1);
+  assert.equal(result.verified, true);
+  assert.equal(result.result.application.id, "11");
+});
+
+test("Playwright personal application withdrawal verifies the exact returned item", async () => {
+  const { client } = createFakeBrowser([]);
+  let clicks = 0;
+  const fingerprint = "e".repeat(64);
+  client.preparePersonalApplicationWithdraw = async () => ({
+    action: "withdraw",
+    fingerprint,
+    preview: { application: { id: "12", status: "申請中" }, availableActions: ["withdraw"] },
+  });
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async click() { clicks += 1; },
+  });
+  client.getPersonalApplicationDetail = async (id) => ({
+    application: { id, status: "差戻し" },
+    availableActions: [],
+  });
+
+  const result = await client.commitPersonalApplicationWithdraw("12", fingerprint, true);
+  assert.equal(clicks, 1);
+  assert.equal(result.verified, true);
+  assert.equal(result.result.application.status, "差戻し");
 });
 
 test("Playwright monthly commit binds the preview and verifies the changed state", async () => {

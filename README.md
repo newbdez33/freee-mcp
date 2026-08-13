@@ -112,7 +112,7 @@ claude --plugin-dir /absolute/path/to/freee-mcp
 
 The repository keeps `.codex/config.toml` for Codex development. The Claude plugin manifest is `.claude-plugin/plugin.json`; its marketplace is `.claude-plugin/marketplace.json`. The plugin resolves its own cached path and persistent data directory, so neither Claude Code nor MCP depends on the user's current working directory.
 
-The Codex configuration uses `default_tools_approval_mode = "writes"`: read-only tools can run directly, while the two commit tools still trigger client approval. Independently of the client prompt, the server validates `confirm: true`, the preview fingerprint, and the current freee state.
+The Codex configuration uses `default_tools_approval_mode = "writes"`: read-only tools can run directly, while commit tools still trigger client approval. Independently of the client prompt, the server validates `confirm: true`, the preview fingerprint, and the current freee state.
 
 ### Maintainer release workflow
 
@@ -140,6 +140,13 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_monthly_status` | Read-only | Read the selected month's personal 月次勤怠締め status |
 | `freee_monthly_prepare_action` | Read-only preview | Generate a monthly submit or withdrawal preview and fingerprint |
 | `freee_monthly_commit_action` | Write | Revalidate the fingerprint and submit or withdraw one monthly application |
+| `freee_personal_application_options` | Read-only | Show enabled personal application types and date-specific leave types |
+| `freee_personal_applications_list` | Read-only | List the current employee's pending, returned, approved, or all applications |
+| `freee_personal_application_detail` | Read-only | Read one current-employee application and its available actions |
+| `freee_personal_application_prepare_create` | Read-only preview | Fill and validate a leave or work-time correction form and generate a fingerprint |
+| `freee_personal_application_commit_create` | Write | Revalidate and submit one personal application |
+| `freee_personal_application_prepare_withdraw` | Read-only preview | Generate a withdrawal preview and fingerprint for one pending application |
+| `freee_personal_application_commit_withdraw` | Write | Revalidate and withdraw one pending personal application |
 | `freee_approvals_list` | Read-only | List pending, approved, returned, or all applications |
 | `freee_approval_detail` | Read-only | Read the full details of one application |
 | `freee_approval_prepare_action` | Read-only preview | Generate an approval or return preview and fingerprint |
@@ -165,6 +172,9 @@ npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
 npm run freee -- monthly status --period YYYY-MM
+npm run freee -- requests options --date YYYY-MM-DD
+npm run freee -- requests list --status pending|returned|approved|all --page 1
+npm run freee -- requests detail --id APPLICATION_NO
 npm run freee -- approvals list
 npm run freee -- approvals list --status all
 npm run freee -- approvals list --status approved --page 2
@@ -186,6 +196,19 @@ npm run freee -- monthly prepare-action --action submit|withdraw --period YYYY-M
 npm run freee -- monthly commit-action --action submit|withdraw \
   --period YYYY-MM --fingerprint PREVIEW_SHA256 --confirm
 
+# Current employee applications: inspect options, prepare, review, then commit
+npm run freee -- requests prepare-create --kind leave --date YYYY-MM-DD \
+  --leave-type "EXACT_FREEE_LABEL" --reason "REASON"
+npm run freee -- requests commit-create --kind leave --date YYYY-MM-DD \
+  --leave-type "EXACT_FREEE_LABEL" --reason "REASON" \
+  --fingerprint PREVIEW_SHA256 --confirm
+npm run freee -- requests prepare-create --kind work-time-correction \
+  --date YYYY-MM-DD --clock-in HH:MM --clock-out HH:MM \
+  [--break-start HH:MM --break-end HH:MM] [--reason "REASON"]
+npm run freee -- requests prepare-withdraw --id APPLICATION_NO
+npm run freee -- requests commit-withdraw --id APPLICATION_NO \
+  --fingerprint PREVIEW_SHA256 --confirm
+
 # Employee applications: prepare first, then commit only after explicit review and approval
 npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return
 npm run freee -- approvals commit-action --id APPLICATION_NO \
@@ -198,13 +221,21 @@ MCP and CLI writes follow the same safety model. Every real action must start wi
 
 The API implementation of `team status` is complete and tested, but the `attendance_manager` role used at GCU cannot read employee memberships through the Public API. The API backend returns the permission error and does not fall back to Playwright.
 
-The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, department monthly attendance summaries, and employee application list/detail/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, and monthly work totals from the attendance list, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
+The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, personal application list/detail/leave/work-time-correction/withdraw, department monthly attendance summaries, and employee application list/detail/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, and monthly work totals from the attendance list, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
 
 ## Monthly attendance applications
 
 `monthly status` reads the month currently selected in freee's attendance calendar and returns its normalized state, freee status label, matching application when present, and available actions. An optional `--period YYYY-MM` is a guard: it must match the selected month and does not silently navigate to another period.
 
 Monthly writes use the same two-step safety model as other writes. `monthly prepare-action --action submit` opens the creation form, reads the target month, application route, approval steps, and checks, but does not click the final `申請` button. `--action withdraw` reads the exact pending application and verifies that `申請を取り下げる` is available. The commit command rereads the complete preview, requires the unchanged fingerprint and explicit current-message confirmation, performs one click, and verifies the resulting monthly state. An ambiguous or unknown result is never retried automatically.
+
+## Personal attendance applications
+
+`requests list` explicitly selects the employee-side `申請` tab and synchronizes each `申請中`, `差戻し`, `承認済`, or `全て` filter with the matching freee response before parsing. `requests detail` searches every employee-side page for one exact application No. and reports `withdraw` only when one visible, enabled `申請を取り下げる` button is present.
+
+Call `requests options` before creating an application. With `--date`, it reads the exact leave types configured by the company for that date. Leave and one-segment work-time correction forms are supported; a work-time correction may include one optional break pair. The current test company does not enable `残業`, so the capability result reports overtime as unavailable and this version does not guess or bypass an unverified overtime form.
+
+Creation and withdrawal use separate prepare and commit commands. Prepare fills the official form, verifies the selected date, values, leave type, and approval route, and returns a SHA-256 fingerprint without clicking `申請` or `申請を取り下げる`. Commit reconstructs the same preview, stops on any change, requires explicit current-message approval, clicks once, and verifies one new pending/approved application or the exact withdrawn application in `差戻し`. An unknown result is never retried automatically.
 
 ## Employee application handling
 

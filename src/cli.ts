@@ -12,6 +12,10 @@ import type {
   BrowserApprovalListStatus,
 } from "./browser-approvals.js";
 import type { BrowserMonthlyAction } from "./browser-monthly.js";
+import type {
+  BrowserPersonalApplicationCreateInput,
+  BrowserPersonalApplicationKind,
+} from "./browser-personal-applications.js";
 import { CliError, toPublicError } from "./errors.js";
 import { FreeeOAuthClient, toStoredOAuthTokens } from "./oauth.js";
 import { receiveAuthorizationCode } from "./oauth-login.js";
@@ -162,6 +166,71 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  if (group === "requests" && command === "options") {
+    const date = parseOptionalDateOption(rest, "requests options");
+    printSuccess("requests options", await service.getPersonalApplicationOptions(date));
+    return;
+  }
+
+  if (group === "requests" && command === "list") {
+    const options = parsePersonalApplicationListOptions(rest);
+    printSuccess(
+      "requests list",
+      await service.getPersonalApplications(options.status, options.page),
+    );
+    return;
+  }
+
+  if (group === "requests" && command === "detail") {
+    const options = parsePersonalApplicationTargetOptions(rest, false);
+    printSuccess("requests detail", await service.getPersonalApplicationDetail(options.id));
+    return;
+  }
+
+  if (group === "requests" && command === "prepare-create") {
+    const options = parsePersonalApplicationCreateOptions(rest, false);
+    printSuccess(
+      "requests prepare-create",
+      await service.preparePersonalApplicationCreate(options.input),
+    );
+    return;
+  }
+
+  if (group === "requests" && command === "commit-create") {
+    const options = parsePersonalApplicationCreateOptions(rest, true);
+    printSuccess(
+      "requests commit-create",
+      await service.commitPersonalApplicationCreate(
+        options.input,
+        options.fingerprint!,
+        options.confirm ?? false,
+      ),
+    );
+    return;
+  }
+
+  if (group === "requests" && command === "prepare-withdraw") {
+    const options = parsePersonalApplicationTargetOptions(rest, false);
+    printSuccess(
+      "requests prepare-withdraw",
+      await service.preparePersonalApplicationWithdraw(options.id),
+    );
+    return;
+  }
+
+  if (group === "requests" && command === "commit-withdraw") {
+    const options = parsePersonalApplicationTargetOptions(rest, true);
+    printSuccess(
+      "requests commit-withdraw",
+      await service.commitPersonalApplicationWithdraw(
+        options.id,
+        options.fingerprint!,
+        options.confirm ?? false,
+      ),
+    );
+    return;
+  }
+
   if (group === "approvals" && command === "list") {
     const options = parseApprovalListOptions(rest);
     printSuccess("approvals list", await service.getApprovals(options.status, options.page));
@@ -200,6 +269,198 @@ async function main(argv: string[]): Promise<void> {
   throw new CliError("UNKNOWN_COMMAND", "Unknown command. Run with `--help` to list available commands.", {
     exitCode: 2,
   });
+}
+
+function parseOptionalDateOption(args: string[], command: string): string | undefined {
+  try {
+    const parsed = parseArgs({
+      args,
+      options: { date: { type: "string" } },
+      strict: true,
+      allowPositionals: false,
+    });
+    const date = parsed.values.date;
+    if (date !== undefined && (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date))) {
+      throw new Error("invalid date");
+    }
+    return typeof date === "string" ? date : undefined;
+  } catch {
+    throw new CliError(
+      "INVALID_ARGUMENTS",
+      `\`${command}\` accepts an optional \`--date YYYY-MM-DD\`.`,
+      { exitCode: 2 },
+    );
+  }
+}
+
+function parsePersonalApplicationListOptions(
+  args: string[],
+): { status: BrowserApprovalListStatus; page: number } {
+  try {
+    const parsed = parseArgs({
+      args,
+      options: {
+        status: { type: "string", default: "pending" },
+        page: { type: "string", default: "1" },
+      },
+      strict: true,
+      allowPositionals: false,
+    });
+    const status = parsed.values.status;
+    const page = Number(parsed.values.page);
+    if ((status !== "pending" && status !== "returned" && status !== "approved" && status !== "all")
+        || !Number.isInteger(page) || page <= 0) {
+      throw new Error("invalid request list options");
+    }
+    return { status, page };
+  } catch {
+    throw new CliError(
+      "INVALID_ARGUMENTS",
+      "`requests list` accepts `--status pending|returned|approved|all` and a positive `--page`.",
+      { exitCode: 2 },
+    );
+  }
+}
+
+function parsePersonalApplicationTargetOptions(
+  args: string[],
+  allowCommit: boolean,
+): { id: string; fingerprint?: string; confirm?: boolean } {
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs({
+      args,
+      options: {
+        id: { type: "string" },
+        ...(allowCommit ? {
+          fingerprint: { type: "string" as const },
+          confirm: { type: "boolean" as const, default: false },
+        } : {}),
+      },
+      strict: true,
+      allowPositionals: false,
+    });
+  } catch {
+    throw new CliError("INVALID_ARGUMENTS", "Invalid personal application options.", {
+      exitCode: 2,
+    });
+  }
+  const id = parsed.values.id;
+  if (typeof id !== "string" || !/^\d+$/.test(id)) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_ID",
+      "`--id` must be the numeric freee application No.",
+      { exitCode: 2 },
+    );
+  }
+  const fingerprint = parsed.values.fingerprint;
+  if (allowCommit && (typeof fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(fingerprint))) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_FINGERPRINT",
+      "`--fingerprint` must be the 64-character value returned by the matching prepare command.",
+      { exitCode: 2 },
+    );
+  }
+  return {
+    id,
+    ...(typeof fingerprint === "string" ? { fingerprint } : {}),
+    ...(typeof parsed.values.confirm === "boolean" ? { confirm: parsed.values.confirm } : {}),
+  };
+}
+
+function parsePersonalApplicationCreateOptions(
+  args: string[],
+  allowCommit: boolean,
+): { input: BrowserPersonalApplicationCreateInput; fingerprint?: string; confirm?: boolean } {
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs({
+      args,
+      options: {
+        kind: { type: "string" },
+        date: { type: "string" },
+        reason: { type: "string" },
+        "leave-type": { type: "string" },
+        "clock-in": { type: "string" },
+        "clock-out": { type: "string" },
+        "break-start": { type: "string" },
+        "break-end": { type: "string" },
+        ...(allowCommit ? {
+          fingerprint: { type: "string" as const },
+          confirm: { type: "boolean" as const, default: false },
+        } : {}),
+      },
+      strict: true,
+      allowPositionals: false,
+    });
+  } catch {
+    throw new CliError("INVALID_ARGUMENTS", "Invalid personal application creation options.", {
+      exitCode: 2,
+    });
+  }
+  const kind = parsed.values.kind;
+  const date = parsed.values.date;
+  if (!isPersonalApplicationKind(kind)) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_KIND",
+      "`--kind` must be leave, overtime, or work-time-correction.",
+      { exitCode: 2 },
+    );
+  }
+  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_DATE",
+      "`--date` must use YYYY-MM-DD.",
+      { exitCode: 2 },
+    );
+  }
+  for (const name of ["clock-in", "clock-out", "break-start", "break-end"] as const) {
+    const value = parsed.values[name];
+    if (value !== undefined && (typeof value !== "string" || !/^\d{2}:\d{2}$/.test(value))) {
+      throw new CliError(
+        "INVALID_PERSONAL_APPLICATION_TIME",
+        `\`--${name}\` must use HH:MM.`,
+        { exitCode: 2 },
+      );
+    }
+  }
+  const fingerprint = parsed.values.fingerprint;
+  if (allowCommit && (typeof fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(fingerprint))) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_FINGERPRINT",
+      "`--fingerprint` must be the 64-character value returned by `requests prepare-create`.",
+      { exitCode: 2 },
+    );
+  }
+  const input: BrowserPersonalApplicationCreateInput = {
+    kind,
+    date,
+    ...(typeof parsed.values.reason === "string" ? { reason: parsed.values.reason } : {}),
+    ...(typeof parsed.values["leave-type"] === "string"
+      ? { leaveType: parsed.values["leave-type"] }
+      : {}),
+    ...(typeof parsed.values["clock-in"] === "string"
+      ? { clockIn: parsed.values["clock-in"] }
+      : {}),
+    ...(typeof parsed.values["clock-out"] === "string"
+      ? { clockOut: parsed.values["clock-out"] }
+      : {}),
+    ...(typeof parsed.values["break-start"] === "string"
+      ? { breakStart: parsed.values["break-start"] }
+      : {}),
+    ...(typeof parsed.values["break-end"] === "string"
+      ? { breakEnd: parsed.values["break-end"] }
+      : {}),
+  };
+  return {
+    input,
+    ...(typeof fingerprint === "string" ? { fingerprint } : {}),
+    ...(typeof parsed.values.confirm === "boolean" ? { confirm: parsed.values.confirm } : {}),
+  };
+}
+
+function isPersonalApplicationKind(value: unknown): value is BrowserPersonalApplicationKind {
+  return value === "leave" || value === "overtime" || value === "work-time-correction";
 }
 
 function parseTeamOptions(args: string[]): { companyId?: number; groupId?: number; date?: string } {
@@ -616,6 +877,13 @@ function printHelp(): void {
   process.stdout.write("  freee-agent monthly status [--period YYYY-MM]\n");
   process.stdout.write("  freee-agent monthly prepare-action --action submit|withdraw [--period YYYY-MM]\n");
   process.stdout.write("  freee-agent monthly commit-action --action submit|withdraw --fingerprint SHA256 [--period YYYY-MM] --confirm\n");
+  process.stdout.write("  freee-agent requests options [--date YYYY-MM-DD]\n");
+  process.stdout.write("  freee-agent requests list [--status pending|returned|approved|all] [--page N]\n");
+  process.stdout.write("  freee-agent requests detail --id NO\n");
+  process.stdout.write("  freee-agent requests prepare-create --kind leave|work-time-correction --date YYYY-MM-DD [fields]\n");
+  process.stdout.write("  freee-agent requests commit-create --kind KIND --date YYYY-MM-DD [fields] --fingerprint SHA256 --confirm\n");
+  process.stdout.write("  freee-agent requests prepare-withdraw --id NO\n");
+  process.stdout.write("  freee-agent requests commit-withdraw --id NO --fingerprint SHA256 --confirm\n");
   process.stdout.write("  freee-agent approvals list [--status pending|returned|approved|all] [--page N]\n");
   process.stdout.write("  freee-agent approvals detail --id NO\n");
   process.stdout.write("  freee-agent approvals prepare-action --id NO --action approve|return\n");

@@ -6,13 +6,16 @@ Prefer these tools for business operations when the host has loaded the installe
 
 | Purpose | Tool | Write behavior |
 | --- | --- | --- |
-| Selected backend | `freee_backend_status` | Read-only |
+| MCP version and selected backend | `freee_backend_status` | Read-only |
 | Authentication check | `freee_auth_status` | Read-only; never returns credentials |
 | API identity | `freee_me` | Read-only; API backend only |
 | Current punch state | `freee_clock_status` | Read-only |
 | Punch preview | `freee_clock_prepare_action` | Read-only; returns fingerprint |
 | Punch execution | `freee_clock_commit_action` | Real write; exact preview, current-message approval, and `confirm: true` required |
 | Department/month status | `freee_team_status` | Read-only |
+| Personal monthly status | `freee_monthly_status` | Read-only |
+| Monthly submit/withdraw preview | `freee_monthly_prepare_action` | Read-only; returns fingerprint |
+| Monthly submit/withdraw execution | `freee_monthly_commit_action` | Real write; exact preview, current-message approval, and `confirm: true` required |
 | Application list | `freee_approvals_list` | Read-only; defaults to pending |
 | Application detail | `freee_approval_detail` | Read-only |
 | Approval/return preview | `freee_approval_prepare_action` | Read-only; returns fingerprint |
@@ -39,6 +42,7 @@ npm run freee -- browser status
 npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
+npm run freee -- monthly status --period 2026-08
 npm run freee -- approvals list
 npm run freee -- approvals list --status all
 npm run freee -- approvals list --status approved --page 2
@@ -88,9 +92,33 @@ npm run freee -- team status --date YYYY-MM-DD
 npm run freee -- approvals list
 npm run freee -- approvals list --status pending|returned|approved|all --page PAGE
 npm run freee -- approvals detail --id APPLICATION_NO
+npm run freee -- monthly status [--period YYYY-MM]
 ```
 
 `team status --date` currently accepts a date only when its month matches the month selected by freee. `--company-id` and `--group-id` are not accepted in the Playwright branch; the CLI uses the company and visible management range already selected by freee and never guesses another one. `me` is not implemented for Playwright.
+
+`monthly status --period` reads the personal month selected in freee's attendance calendar. The period is a safety guard and must match that selected month; the command does not silently navigate to another month. It returns `unsubmitted`, `pending`, `approved`, or `returned`, preserves the corresponding freee label, identifies the exact matching monthly application when present, and lists only currently available actions.
+
+## Monthly attendance actions
+
+Generate a read-only preview first:
+
+```bash
+npm run freee -- monthly prepare-action \
+  --action submit|withdraw [--period YYYY-MM]
+```
+
+For `submit`, the preview opens the creation form and returns the selected work period, target pay month, application route, approval steps, checks, and SHA-256 fingerprint without clicking the final `申請` button. For `withdraw`, it opens the exact pending monthly application and verifies one enabled `申請を取り下げる` button without clicking it.
+
+Only after the current user message explicitly approves that exact period and action, use the unchanged values:
+
+```bash
+npm run freee -- monthly commit-action \
+  --action submit|withdraw --period YYYY-MM \
+  --fingerprint PREVIEW_SHA256 --confirm
+```
+
+The commit rereads the complete preview before one click. A changed period, state, route, approval step, check, action availability, or fingerprint stops before the click. A successful submit must be visible as `pending` or `approved` with one application; a successful withdrawal must be visible as `returned`. An unknown result is never retried automatically.
 
 `approvals list` explicitly selects the current account's manager-side `承認` tab and defaults to its pending (`未承認`) queue. It never treats the default employee-side `申請` tab as an approval queue. The optional positive `page` defaults to 1. Read `pageCount` and request later pages only when needed; `totalCount` is the complete filter count, while `applicationCount` and `applications` describe the returned page. Each item includes the freee application No., applicant, status, type, target date, content, reason, application date, current approver, and automatic-check summary. The browser binds each read to the matching freee response and rendered row count instead of relying on a fixed delay. `approvals detail` searches all pages for exactly one numeric No. and returns its full visible fields, approval route, department, comment history, automatic-check messages, and currently available actions. These commands are Playwright-only and never fall back to API.
 
@@ -208,6 +236,11 @@ Important error codes:
 - `BROWSER_NAVIGATION_BLOCKED` or `BROWSER_PAGE_AMBIGUOUS`: stop. Do not broaden selectors, allow a new host, or force a click without reviewing the current freee page structure.
 - `BROWSER_TEAM_PAGE_UNEXPECTED`: freee changed the attendance-monitor table schema; stop rather than returning misaligned employee data.
 - `BROWSER_APPROVAL_PAGE_UNEXPECTED` or `BROWSER_APPROVAL_DETAIL_UNEXPECTED`: freee changed the supported application list/detail view; stop without writing.
+- `BROWSER_MONTHLY_PAGE_UNEXPECTED` or `BROWSER_MONTHLY_PERIOD_AMBIGUOUS`: freee changed or ambiguously rendered the monthly workflow; stop without writing.
+- `BROWSER_MONTHLY_PERIOD_UNSUPPORTED`: select the intended month in freee or use the currently selected month; do not continue against another period.
+- `MONTHLY_ACTION_UNAVAILABLE`: report the current monthly state and available actions; do not substitute another write.
+- `MONTHLY_PREVIEW_CHANGED`: no action occurred. Prepare again, present the new preview, and obtain new explicit approval.
+- `MONTHLY_ACTION_RESULT_UNKNOWN`: do not retry. Read monthly status and inspect freee before considering another write.
 - `INVALID_APPROVAL_PAGE`: use a positive page no greater than the returned `pageCount`.
 - `APPROVAL_NOT_FOUND`: the numeric application No. was absent after every manager-workflow page was read; do not substitute a similar item.
 - `APPROVAL_ACTION_UNAVAILABLE`: the application is already processed or the current account cannot perform that action; stop.
@@ -225,8 +258,8 @@ Important error codes:
 
 ## Current scope
 
-Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright monthly department attendance-monitor summaries; and synchronized paginated Playwright employee application list/detail plus fingerprint-bound single-item approval/return.
+Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw; Playwright monthly department attendance-monitor summaries; and synchronized paginated Playwright employee application list/detail plus fingerprint-bound single-item approval/return.
 
 Implemented but unavailable to the current API role: API-backed direct department member daily punch status. Do not fall back.
 
-Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, employee-created applications/corrections, monthly submissions/withdrawals, deletes, audit logs, and batch changes. Keep these on `TODO.md`; do not directly run the legacy Playwright project.
+Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, other employee-created applications/corrections, deletes, audit logs, and batch changes. Keep these on `TODO.md`; do not directly run the legacy Playwright project.

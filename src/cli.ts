@@ -11,6 +11,7 @@ import type {
   BrowserApprovalAction,
   BrowserApprovalListStatus,
 } from "./browser-approvals.js";
+import type { BrowserMonthlyAction } from "./browser-monthly.js";
 import { CliError, toPublicError } from "./errors.js";
 import { FreeeOAuthClient, toStoredOAuthTokens } from "./oauth.js";
 import { receiveAuthorizationCode } from "./oauth-login.js";
@@ -132,6 +133,35 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  if (group === "monthly" && command === "status") {
+    const options = parseMonthlyOptions(rest, { allowAction: false, allowCommit: false });
+    printSuccess("monthly status", await service.getMonthlyStatus(options.period));
+    return;
+  }
+
+  if (group === "monthly" && command === "prepare-action") {
+    const options = parseMonthlyOptions(rest, { allowAction: true, allowCommit: false });
+    printSuccess(
+      "monthly prepare-action",
+      await service.prepareMonthlyAction(options.action!, options.period),
+    );
+    return;
+  }
+
+  if (group === "monthly" && command === "commit-action") {
+    const options = parseMonthlyOptions(rest, { allowAction: true, allowCommit: true });
+    printSuccess(
+      "monthly commit-action",
+      await service.commitMonthlyAction(
+        options.action!,
+        options.fingerprint!,
+        options.confirm ?? false,
+        options.period,
+      ),
+    );
+    return;
+  }
+
   if (group === "approvals" && command === "list") {
     const options = parseApprovalListOptions(rest);
     printSuccess("approvals list", await service.getApprovals(options.status, options.page));
@@ -238,6 +268,61 @@ function parseApprovalListOptions(args: string[]): { status: BrowserApprovalList
       { exitCode: 2 },
     );
   }
+}
+
+function parseMonthlyOptions(
+  args: string[],
+  policy: { allowAction: boolean; allowCommit: boolean },
+): {
+  period?: string;
+  action?: BrowserMonthlyAction;
+  fingerprint?: string;
+  confirm?: boolean;
+} {
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs({
+      args,
+      options: {
+        period: { type: "string" },
+        ...(policy.allowAction ? { action: { type: "string" as const } } : {}),
+        ...(policy.allowCommit ? {
+          fingerprint: { type: "string" as const },
+          confirm: { type: "boolean" as const, default: false },
+        } : {}),
+      },
+      strict: true,
+      allowPositionals: false,
+    });
+  } catch {
+    throw new CliError("INVALID_ARGUMENTS", "Invalid monthly command options.", { exitCode: 2 });
+  }
+  const period = parsed.values.period;
+  if (typeof period === "string" && !/^\d{4}-\d{2}$/.test(period)) {
+    throw new CliError("INVALID_MONTHLY_PERIOD", "`--period` must use YYYY-MM.", { exitCode: 2 });
+  }
+  const action = parsed.values.action;
+  if (policy.allowAction && action !== "submit" && action !== "withdraw") {
+    throw new CliError(
+      "INVALID_MONTHLY_ACTION",
+      "`--action` must be submit or withdraw.",
+      { exitCode: 2 },
+    );
+  }
+  const fingerprint = parsed.values.fingerprint;
+  if (policy.allowCommit && (typeof fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(fingerprint))) {
+    throw new CliError(
+      "INVALID_MONTHLY_FINGERPRINT",
+      "`--fingerprint` must be the 64-character value returned by `monthly prepare-action`.",
+      { exitCode: 2 },
+    );
+  }
+  return {
+    ...(typeof period === "string" ? { period } : {}),
+    ...(action === "submit" || action === "withdraw" ? { action } : {}),
+    ...(typeof fingerprint === "string" ? { fingerprint } : {}),
+    ...(typeof parsed.values.confirm === "boolean" ? { confirm: parsed.values.confirm } : {}),
+  };
 }
 
 function parseApprovalTargetOptions(
@@ -528,6 +613,9 @@ function printHelp(): void {
   process.stdout.write("  freee-agent me\n");
   process.stdout.write("  freee-agent clock status [--company-id ID] [--date YYYY-MM-DD]\n");
   process.stdout.write("  freee-agent team status [--company-id ID] [--group-id ID] [--date YYYY-MM-DD]\n");
+  process.stdout.write("  freee-agent monthly status [--period YYYY-MM]\n");
+  process.stdout.write("  freee-agent monthly prepare-action --action submit|withdraw [--period YYYY-MM]\n");
+  process.stdout.write("  freee-agent monthly commit-action --action submit|withdraw --fingerprint SHA256 [--period YYYY-MM] --confirm\n");
   process.stdout.write("  freee-agent approvals list [--status pending|returned|approved|all] [--page N]\n");
   process.stdout.write("  freee-agent approvals detail --id NO\n");
   process.stdout.write("  freee-agent approvals prepare-action --id NO --action approve|return\n");

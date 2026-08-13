@@ -3,6 +3,12 @@ import test from "node:test";
 
 import { FreeeService } from "../dist/service.js";
 
+test("backend status reports the running package version", async () => {
+  const result = await new FreeeService("playwright").getBackendStatus();
+  assert.match(result.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(result.backend, "playwright");
+});
+
 function clockStatus(actions = ["in"]) {
   return {
     backend: "playwright",
@@ -52,4 +58,19 @@ test("shared service clock commit requires confirmation before reading live stat
     (error) => error.code === "CONFIRMATION_REQUIRED",
   );
   assert.equal(reads, 0);
+});
+
+test("shared service monthly commit requires confirmation before launching a browser", async () => {
+  const service = new FreeeService("playwright");
+  let launches = 0;
+  service.withBrowser = async () => {
+    launches += 1;
+    return {};
+  };
+
+  await assert.rejects(
+    service.commitMonthlyAction("submit", "0".repeat(64), false, "2026-08"),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  assert.equal(launches, 0);
 });

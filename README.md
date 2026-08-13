@@ -130,13 +130,16 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 
 | MCP tool | Type | Purpose |
 | --- | --- | --- |
-| `freee_backend_status` | Read-only | Show the exclusively selected backend |
+| `freee_backend_status` | Read-only | Show the MCP version and exclusively selected backend |
 | `freee_auth_status` | Read-only | Verify authentication without returning credentials |
 | `freee_me` | Read-only | Read the current user and company identities on the API backend |
 | `freee_clock_status` | Read-only | Show currently available punch actions |
 | `freee_clock_prepare_action` | Read-only preview | Generate a punch preview and fingerprint |
 | `freee_clock_commit_action` | Write | Revalidate the fingerprint and create one real punch |
 | `freee_team_status` | Read-only | Read a department or current web-management monthly summary |
+| `freee_monthly_status` | Read-only | Read the selected month's personal 月次勤怠締め status |
+| `freee_monthly_prepare_action` | Read-only preview | Generate a monthly submit or withdrawal preview and fingerprint |
+| `freee_monthly_commit_action` | Write | Revalidate the fingerprint and submit or withdraw one monthly application |
 | `freee_approvals_list` | Read-only | List pending, approved, returned, or all applications |
 | `freee_approval_detail` | Read-only | Read the full details of one application |
 | `freee_approval_prepare_action` | Read-only preview | Generate an approval or return preview and fingerprint |
@@ -161,6 +164,7 @@ npm run freee -- auth status
 npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
+npm run freee -- monthly status --period YYYY-MM
 npm run freee -- approvals list
 npm run freee -- approvals list --status all
 npm run freee -- approvals list --status approved --page 2
@@ -177,6 +181,11 @@ npm run freee -- clock break-start --confirm
 npm run freee -- clock break-end --confirm
 npm run freee -- clock out --confirm
 
+# Monthly attendance: prepare first, then commit only after explicit review and approval
+npm run freee -- monthly prepare-action --action submit|withdraw --period YYYY-MM
+npm run freee -- monthly commit-action --action submit|withdraw \
+  --period YYYY-MM --fingerprint PREVIEW_SHA256 --confirm
+
 # Employee applications: prepare first, then commit only after explicit review and approval
 npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return
 npm run freee -- approvals commit-action --id APPLICATION_NO \
@@ -189,7 +198,13 @@ MCP and CLI writes follow the same safety model. Every real action must start wi
 
 The API implementation of `team status` is complete and tested, but the `attendance_manager` role used at GCU cannot read employee memberships through the Public API. The API backend returns the permission error and does not fall back to Playwright.
 
-The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, department monthly attendance summaries, and employee application list/detail/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, and monthly work totals from the attendance list, and processes authorized applications through the application approval workflow. The browser profile stays outside the repository.
+The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, department monthly attendance summaries, and employee application list/detail/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, and monthly work totals from the attendance list, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
+
+## Monthly attendance applications
+
+`monthly status` reads the month currently selected in freee's attendance calendar and returns its normalized state, freee status label, matching application when present, and available actions. An optional `--period YYYY-MM` is a guard: it must match the selected month and does not silently navigate to another period.
+
+Monthly writes use the same two-step safety model as other writes. `monthly prepare-action --action submit` opens the creation form, reads the target month, application route, approval steps, and checks, but does not click the final `申請` button. `--action withdraw` reads the exact pending application and verifies that `申請を取り下げる` is available. The commit command rereads the complete preview, requires the unchanged fingerprint and explicit current-message confirmation, performs one click, and verifies the resulting monthly state. An ambiguous or unknown result is never retried automatically.
 
 ## Employee application handling
 

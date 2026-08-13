@@ -11,12 +11,13 @@ Prefer the installed `freee` MCP tools for business operations. Use the companio
 
 1. If MCP tools are available, call `freee_backend_status`; otherwise run CLI `backend status`. An explicit `.env` or process `FREEE_BACKEND` wins over credential detection. If it is `auto`, API configuration present means `api`; absent means `playwright`. Use the selected execution surface for the rest of that operation.
 2. In the API branch, use only API-backed commands. Cross-employee operations require the API role to allow them; `attendance_manager` is known not to support API `team status`.
-3. In the Playwright branch, use the corresponding MCP clock, team, and approval tools. `freee_team_status` returns the selected month's visible members, closing application state, attendance issues, and work totals. `freee_approvals_list` and `freee_approval_detail` read the current account's approval workflow. Never directly run the legacy project or ad-hoc browser actions.
+3. In the Playwright branch, use the corresponding MCP clock, monthly, team, and approval tools. `freee_monthly_status` reads the personal month currently selected in freee; `freee_team_status` returns that management view's visible members, closing application state, attendance issues, and work totals. `freee_approvals_list` and `freee_approval_detail` read the current account's approval workflow. Never directly run the legacy project or ad-hoc browser actions.
 4. For API setup, run `auth configure` only after explicit approval. Prefer `system`, which stores Client Secret and Tokens in the System Keyring. In an installed plugin or agent package, use its resolved CLI path and persistent data directory; never invent a repository-relative command.
 5. For Playwright first-time setup, call `freee_auth_status` and show the exact `setupCommand` returned with `WEB_CREDENTIALS_UNAVAILABLE`. Instruct the user to run it directly in a local interactive terminal. The CLI hides username, password, and confirmation input, stores them in System Keychain, and returns no credential value. Never run it through a non-interactive Agent shell or accept credentials in chat. Use `browser credentials-status` only in a source-development checkout.
 6. For a real punch, call `freee_clock_prepare_action`, present its preview and fingerprint, and wait. Call `freee_clock_commit_action` with the unchanged values and `confirm: true` only when the current user message explicitly approves that exact action. With CLI-only hosts, use the equivalent status plus dedicated `clock ... --confirm` command.
-7. For an employee application, call `freee_approvals_list` and `freee_approval_detail` first. List results are paginated; start at page 1 and follow `pageCount` only as needed. Use `freee_approval_prepare_action` for a read-only preview and fingerprint. Call `freee_approval_commit_action` with `confirm: true` only when the current user message explicitly approves that exact application No. and action after seeing the preview. If the fingerprint changes, prepare and present a fresh preview instead of writing.
-8. For any other request or CLI syntax, check [references/commands.md](references/commands.md). Do not improvise an API, MCP, or browser workflow that lacks a dedicated tool or command.
+7. For a personal monthly attendance submission or withdrawal, call `freee_monthly_status` first. Its optional `period` is a guard and must match the month selected in freee. Use `freee_monthly_prepare_action` for a read-only preview and fingerprint. Call `freee_monthly_commit_action` with `confirm: true` only when the current user message explicitly approves that exact period and action after seeing the preview. If the fingerprint changes, prepare and present a fresh preview instead of writing.
+8. For an employee application, call `freee_approvals_list` and `freee_approval_detail` first. List results are paginated; start at page 1 and follow `pageCount` only as needed. Use `freee_approval_prepare_action` for a read-only preview and fingerprint. Call `freee_approval_commit_action` with `confirm: true` only when the current user message explicitly approves that exact application No. and action after seeing the preview. If the fingerprint changes, prepare and present a fresh preview instead of writing.
+9. For any other request or CLI syntax, check [references/commands.md](references/commands.md). Do not improvise an API, MCP, or browser workflow that lacks a dedicated tool or command.
 
 For MCP, read `structuredContent` and report the meaningful result in the user's language. When an installed MCP CLI command is necessary, use the exact command returned by MCP. In a Claude plugin, its resolved form is `node "${CLAUDE_PLUGIN_ROOT}/scripts/plugin-cli.mjs" --plugin-data "${CLAUDE_PLUGIN_DATA}" <arguments>`. In a Pi-managed package without MCP support, resolve the package root from this Skill and run `node <package-root>/scripts/standalone-cli.mjs <arguments>`. For source development only, run `npm run freee -- <arguments>` from the repository root. Read the JSON envelope from stdout or stderr.
 
@@ -41,7 +42,8 @@ For MCP, read `structuredContent` and report the meaningful result in the user's
 - If freee says the action is unavailable, report the returned available types and stop. Do not retry a different write action.
 - Never use an approval commit tool or command directly. First prepare, present the application identity, type, target date, content, reason, automatic checks, requested action, and fingerprint, and wait for explicit approval in a new current message.
 - A general request to implement, test, inspect, continue, handle applications, or approve applications is not approval of a specific real application. Never run a real approval write while developing or testing.
-- Do not submit, delete, batch-approve, or batch-change anything until a dedicated CLI command with preview and confirmation exists.
+- Never use a monthly commit tool or command directly. First prepare, present the exact period, current state, target month, route, approval steps, checks, requested action, and fingerprint, then wait for explicit approval in a new current message.
+- Do not delete, batch-approve, or batch-change anything until a dedicated CLI command with preview and confirmation exists.
 
 ## Map explicit punch requests
 
@@ -61,3 +63,11 @@ Always consult [references/commands.md](references/commands.md) for exact syntax
 - 差戻し、退回修改: prepare with `--action return`, then commit only after explicit confirmation
 
 Always consult [references/commands.md](references/commands.md) before preparing or committing an application action. freee's supported operation is 差戻し (return to applicant), not an irreversible rejection.
+
+## Map monthly attendance requests
+
+- 月次勤怠状态、締め申請状态: `freee_monthly_status`; include `period: YYYY-MM` when the user named a month
+- 提交月次勤怠、月次勤怠締め申請: prepare and then commit with action `submit`
+- 撤回未批准的月次申请、申請を取り下げる: prepare and then commit with action `withdraw`
+
+Always consult [references/commands.md](references/commands.md) before preparing or committing a monthly action. `withdraw` is available only for the current user's pending application and maps to freee's `申請を取り下げる`; it is not an administrator approval cancellation or a delete.

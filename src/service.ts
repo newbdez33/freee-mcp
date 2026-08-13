@@ -10,6 +10,7 @@ import type {
   BrowserApprovalDetail,
   BrowserApprovalListStatus,
 } from "./browser-approvals.js";
+import type { BrowserMonthlyAction } from "./browser-monthly.js";
 import { FreeeBrowserClient } from "./browser.js";
 import { createClockActionFingerprint } from "./clock-preview.js";
 import { FreeeClient } from "./client.js";
@@ -18,6 +19,7 @@ import { CliError } from "./errors.js";
 import { resolveBackend, type FreeeBackend } from "./backend.js";
 import { getTeamStatus, type TeamStatusOptions } from "./team.js";
 import type { EmployeeContext, TimeClockType } from "./types.js";
+import { version } from "./version.js";
 
 export interface UnifiedClockStatus {
   backend: FreeeBackend;
@@ -31,7 +33,7 @@ export interface UnifiedClockStatus {
 
 export interface FreeeOperations {
   readonly backend: FreeeBackend;
-  getBackendStatus(): Promise<{ backend: FreeeBackend }>;
+  getBackendStatus(): Promise<{ version: string; backend: FreeeBackend }>;
   getAuthStatus(): Promise<Record<string, unknown>>;
   getMe(): Promise<Record<string, unknown>>;
   getClockStatus(options?: { companyId?: number; date?: string }): Promise<UnifiedClockStatus>;
@@ -43,6 +45,14 @@ export interface FreeeOperations {
     options?: { companyId?: number },
   ): Promise<Record<string, unknown>>;
   getTeamStatus(options?: TeamStatusOptions): Promise<Record<string, unknown>>;
+  getMonthlyStatus(period?: string): Promise<Record<string, unknown>>;
+  prepareMonthlyAction(action: BrowserMonthlyAction, period?: string): Promise<Record<string, unknown>>;
+  commitMonthlyAction(
+    action: BrowserMonthlyAction,
+    fingerprint: string,
+    confirm: boolean,
+    period?: string,
+  ): Promise<Record<string, unknown>>;
   getApprovals(status?: BrowserApprovalListStatus, page?: number): Promise<Record<string, unknown>>;
   getApprovalDetail(id: string): Promise<Record<string, unknown>>;
   prepareApprovalAction(id: string, action: BrowserApprovalAction): Promise<Record<string, unknown>>;
@@ -64,8 +74,8 @@ export class FreeeService implements FreeeOperations {
     return new FreeeService(await resolveBackend());
   }
 
-  async getBackendStatus(): Promise<{ backend: FreeeBackend }> {
-    return { backend: this.backend };
+  async getBackendStatus(): Promise<{ version: string; backend: FreeeBackend }> {
+    return { version, backend: this.backend };
   }
 
   async getAuthStatus(): Promise<Record<string, unknown>> {
@@ -246,6 +256,47 @@ export class FreeeService implements FreeeOperations {
     }
     const { api } = await this.getApiRuntime();
     return { backend: this.backend, ...await getTeamStatus(api, options) };
+  }
+
+  async getMonthlyStatus(period?: string): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Monthly attendance workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser((client) => client.getMonthlyStatus(period))),
+    };
+  }
+
+  async prepareMonthlyAction(
+    action: BrowserMonthlyAction,
+    period?: string,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Monthly attendance workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser((client) => client.prepareMonthlyAction(action, period))),
+    };
+  }
+
+  async commitMonthlyAction(
+    action: BrowserMonthlyAction,
+    fingerprint: string,
+    confirm: boolean,
+    period?: string,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Monthly attendance workflow");
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This tool changes a real monthly attendance application. Prepare it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        { details: { action, period: period ?? null }, exitCode: 2 },
+      );
+    }
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser(
+        (client) => client.commitMonthlyAction(action, fingerprint, confirm, period),
+      )),
+    };
   }
 
   async getApprovals(

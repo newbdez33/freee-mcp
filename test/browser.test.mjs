@@ -503,6 +503,66 @@ test("Playwright approval detail waits for the route to render after a row click
   assert.equal(waitedForNetworkIdle, true);
 });
 
+test("Playwright approval detail fingerprints only a settled async snapshot", async () => {
+  const { client } = createFakeBrowser([]);
+  const partial = { fields: [], tables: [], detailLines: ["申請内容"] };
+  const complete = {
+    fields: [],
+    tables: [{ headers: ["項目名", "内容"], rows: [["申請経路", "勤怠申請"]] }],
+    detailLines: ["申請内容", "自動でチェックしました。特に問題ないように見えます。"],
+  };
+  const snapshots = [partial, complete, complete];
+  let snapshotReads = 0;
+  let waits = 0;
+  client.readApprovalDetailSnapshot = async () => {
+    snapshotReads += 1;
+    return snapshots.shift() ?? complete;
+  };
+  client.page.waitForTimeout = async (milliseconds) => {
+    assert.equal(milliseconds, 200);
+    waits += 1;
+  };
+  client.page.getByRole = () => ({
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+  });
+
+  const result = await client.readApprovalDetail({
+    id: "10039",
+    status: "未承認",
+    applicant: "申請者 A",
+    type: "休暇取消",
+    targetDate: "2026/08/14",
+    content: "有休 半休",
+    reason: null,
+    appliedAt: "2026/08/14",
+    currentApprover: "承認者 A",
+    checkResult: null,
+  });
+
+  assert.deepEqual(result.tables, complete.tables);
+  assert.deepEqual(result.detailLines, complete.detailLines);
+  assert.equal(snapshotReads, 3);
+  assert.equal(waits, 2);
+});
+
+test("Playwright approval detail stops when its async snapshot never settles", async () => {
+  const { client } = createFakeBrowser([]);
+  let snapshotReads = 0;
+  client.readApprovalDetailSnapshot = async () => ({
+    fields: [],
+    tables: [],
+    detailLines: [`render-${snapshotReads += 1}`],
+  });
+
+  await assert.rejects(
+    client.readStableApprovalDetailSnapshot(),
+    (error) => error.code === "BROWSER_APPROVAL_DETAIL_UNEXPECTED",
+  );
+  assert.equal(snapshotReads, 11);
+});
+
 test("Playwright personal application list uses the employee returned-state filter", async () => {
   const { client, state } = createFakePersonalApplicationBrowser();
   const result = await client.getPersonalApplications("returned", 1);

@@ -54,8 +54,8 @@
 - [x] 实现 `browser status`：从 Keychain 自动登录；MFA/CAPTCHA 切换到可见浏览器处理
 - [x] 为 freee 官方域名、预期 URL、单一选择器和只读页面建立强制校验
 - [x] 使用脱敏表格快照测试勤怠一覧解析，不在测试中访问真实员工数据
-- [ ] 查询月次勤怠申请状态
-- [ ] 提交、撤回月次勤怠申请
+- [x] 查询月次勤怠申请状态
+- [x] 提交、撤回月次勤怠申请，并使用 prepare/commit 指纹确认和写后状态复核
 - [x] 完成 API 版部门状态原型并验证其受 `company_admin` 限制，当前角色不可用
 - [x] 在 Playwright 分支实现 `team status`，读取当前可见范围的成员、月次不备和工时汇总
 - [ ] 在 Playwright 分支增加指定日期的成员出退勤明细
@@ -69,15 +69,15 @@
 ## 第四阶段：MCP 接入
 
 - [x] 抽取 `FreeeService`，供 CLI 与 MCP 共享认证、后端和业务实现
-- [x] 实现本地 STDIO MCP Server 和 11 个结构化工具
+- [x] 实现本地 STDIO MCP Server 和 14 个结构化工具
 - [x] 为只读、预览和写入工具添加 MCP annotations
-- [x] 打卡和审批采用 prepare/commit 两阶段工具，并绑定 SHA-256 状态指纹
+- [x] 打卡、月次提交/撤回和审批采用 prepare/commit 两阶段工具，并绑定 SHA-256 状态指纹
 - [x] commit 工具同时要求客户端审批、`confirm: true` 和服务端状态复核
 - [x] 增加 MCP 内存协议测试；测试中不调用真实写操作
 - [x] 使用真实 System Keychain + Playwright 完成 STDIO 工具发现和个人状态只读验证
 - [x] 增加 Codex `.codex/config.toml` 开发配置与 Claude Code 用户级 plugin/marketplace 清单
 - [x] 更新共用 Skill，业务操作优先使用 MCP，CLI 保留初始化和故障处理职责
-- [ ] 在下一个小版本让 `freee_backend_status` 同时返回 `version` 和 `backend`，使 Agent 能直接报告实际 MCP 版本而无需通过插件缓存路径推断
+- [x] 让 `freee_backend_status` 同时返回 `version` 和 `backend`，使 Agent 能直接报告实际 MCP 版本而无需通过插件缓存路径推断
 - [ ] 增加 MCP 服务器并发会话、超时和取消的压力测试
 - [x] Claude 插件通过 `${CLAUDE_PLUGIN_ROOT}` 与 `${CLAUDE_PLUGIN_DATA}` 稳定解析运行代码和跨版本配置
 

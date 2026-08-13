@@ -7,7 +7,7 @@ import type { FreeeOperations } from "./service.js";
 import { version } from "./version.js";
 
 export const mcpServerInstructions = [
-  "Use read tools when they match the user's request. Never call freee_clock_commit_action or freee_approval_commit_action unless the user's current message explicitly authorizes that exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. A general request to implement, inspect, continue, or handle work is not approval for a real write.",
+  "Use read tools when they match the user's request. Never call a clock, approval, or monthly commit tool unless the user's current message explicitly authorizes that exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. A general request to implement, inspect, continue, or handle work is not approval for a real write.",
   "The selected API or Playwright backend is exclusive for each server process; never fall back. Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, show the exact setupCommand returned in the error and instruct the user to run it directly in a local interactive terminal; never accept credentials in chat or MCP arguments. If a preview changes or a result is unknown, stop and read status/detail before considering another write. Do not retry a write automatically.",
 ].join(" ");
 
@@ -22,6 +22,10 @@ const approvalActionSchema = z.enum(["approve", "return"])
   .describe("approve maps to 承認; return maps to 申請者へ差し戻す.");
 const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/)
   .describe("The unchanged SHA-256 fingerprint returned by the matching prepare tool.");
+const monthlyActionSchema = z.enum(["submit", "withdraw"])
+  .describe("submit creates a 月次勤怠締め application; withdraw uses 申請を取り下げる.");
+const periodSchema = z.string().regex(/^\d{4}-\d{2}$/).optional()
+  .describe("Optional work month in YYYY-MM. It must match the month selected in freee.");
 
 const readOnlyAnnotations = {
   readOnlyHint: true,
@@ -124,6 +128,44 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
       ...(group_id === undefined ? {} : { groupId: group_id }),
       ...(date === undefined ? {} : { date }),
     }),
+  ));
+
+  server.registerTool("freee_monthly_status", {
+    title: "freee monthly attendance status",
+    description: "Read the selected month's personal 月次勤怠締め application status and available actions without changing freee.",
+    inputSchema: { period: periodSchema },
+    annotations: readOnlyAnnotations,
+  }, async ({ period }) => executeTool(() => service.getMonthlyStatus(period)));
+
+  server.registerTool("freee_monthly_prepare_action", {
+    title: "Preview a freee monthly attendance action",
+    description: "Read and preview one monthly submit or withdrawal action, returning a binding fingerprint. No application is changed.",
+    inputSchema: {
+      action: monthlyActionSchema,
+      period: periodSchema,
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ action, period }) => executeTool(
+    () => service.prepareMonthlyAction(action, period),
+  ));
+
+  server.registerTool("freee_monthly_commit_action", {
+    title: "Commit a freee monthly attendance action",
+    description: "Submit or withdraw one real monthly attendance application only after matching preview and explicit current-message approval. Never call directly or retry automatically.",
+    inputSchema: {
+      action: monthlyActionSchema,
+      period: periodSchema,
+      fingerprint: fingerprintSchema,
+      confirm: z.literal(true).describe("Must be true only after explicit current-message user approval."),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ action, period, fingerprint, confirm }) => executeTool(
+    () => service.commitMonthlyAction(action, fingerprint, confirm, period),
   ));
 
   server.registerTool("freee_approvals_list", {

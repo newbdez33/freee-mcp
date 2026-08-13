@@ -15,6 +15,9 @@ test("the compiled CLI entry point is runnable without credentials for help", as
   assert.match(result.stdout, new RegExp(`freee-agent ${packageJson.version.replaceAll(".", "\\.")}`));
   assert.match(result.stdout, /clock in\|break-start\|break-end\|out/);
   assert.match(result.stdout, /team status/);
+  assert.match(result.stdout, /monthly status/);
+  assert.match(result.stdout, /monthly prepare-action/);
+  assert.match(result.stdout, /monthly commit-action/);
   assert.match(result.stdout, /approvals prepare-action/);
   assert.match(result.stdout, /approvals commit-action/);
   assert.doesNotMatch(result.stdout, /migrate/);

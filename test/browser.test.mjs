@@ -396,3 +396,87 @@ test("Playwright approval commit reports an unknown result when the clicked item
   );
   assert.deepEqual(state.clicks, ["approve"]);
 });
+
+test("Playwright monthly commit never clicks without explicit confirmation", async () => {
+  const { client, state } = createFakeBrowser([]);
+  let prepares = 0;
+  client.prepareMonthlyAction = async () => {
+    prepares += 1;
+    return { action: "submit", fingerprint: "a".repeat(64), preview: {} };
+  };
+
+  await assert.rejects(
+    client.commitMonthlyAction("submit", "a".repeat(64), false, "2026-08"),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  assert.equal(prepares, 0);
+  assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright monthly commit binds the preview and verifies the changed state", async () => {
+  const { client, state } = createFakeBrowser([]);
+  const fingerprint = "a".repeat(64);
+  client.prepareMonthlyAction = async () => ({
+    action: "submit",
+    fingerprint,
+    preview: { status: { period: "2026-08" } },
+  });
+  client.getMonthlyStatus = async () => ({
+    period: "2026-08",
+    periodLabel: "2026年8月勤務分",
+    state: "pending",
+    statusLabel: "未承認",
+    application: { id: "1234" },
+    availableActions: ["withdraw"],
+  });
+  client.page.getByRole = (_role, options) => {
+    assert.equal(options.name, "申請");
+    return {
+      async count() { return 1; },
+      async isVisible() { return true; },
+      async isEnabled() { return true; },
+      async click() { state.clicks.push("submit"); },
+    };
+  };
+
+  await assert.rejects(
+    client.commitMonthlyAction("submit", "b".repeat(64), true, "2026-08"),
+    (error) => error.code === "MONTHLY_PREVIEW_CHANGED",
+  );
+  assert.deepEqual(state.clicks, []);
+
+  const result = await client.commitMonthlyAction("submit", fingerprint, true, "2026-08");
+  assert.equal(result.verified, true);
+  assert.deepEqual(state.clicks, ["submit"]);
+});
+
+test("Playwright monthly withdrawal preview binds the exact pending application", async () => {
+  const { client } = createFakeBrowser([]);
+  client.getMonthlyStatus = async () => ({
+    period: "2026-08",
+    periodLabel: "2026年8月勤務分",
+    state: "pending",
+    statusLabel: "未承認",
+    application: { id: "1234", status: "未承認", type: "月次勤怠締め" },
+    availableActions: ["withdraw"],
+  });
+  client.openEmployeeApplicationDetail = async (id) => ({
+    application: { id, status: "未承認", type: "月次勤怠締め" },
+    fields: [],
+    tables: [],
+    detailLines: ["月次勤怠締め"],
+    availableActions: [],
+  });
+  client.page.getByRole = (_role, options) => {
+    assert.equal(options.name, "申請を取り下げる");
+    return {
+      async count() { return 1; },
+      async isVisible() { return true; },
+      async isEnabled() { return true; },
+    };
+  };
+
+  const result = await client.prepareMonthlyAction("withdraw", "2026-08");
+  assert.equal(result.preview.applicationDetail.application.id, "1234");
+  assert.match(result.fingerprint, /^[a-f0-9]{64}$/);
+});

@@ -17,6 +17,15 @@ import {
   type BrowserApprovalSummary,
 } from "./browser-approvals.js";
 import {
+  createMonthlyFingerprint,
+  parseMonthlyCalendarSnapshot,
+  periodFromMonthlyTargetDate,
+  type BrowserMonthlyAction,
+  type BrowserMonthlyPreview,
+  type BrowserMonthlyStatus,
+  type BrowserMonthlySubmitForm,
+} from "./browser-monthly.js";
+import {
   parseAttendanceMonitorSnapshot,
   type BrowserTeamMemberStatus,
 } from "./browser-team.js";
@@ -294,6 +303,198 @@ export class FreeeBrowserClient {
       return { headers, rows, periodCandidates, selectedPeriod, periodDescriptors };
     });
     return parseAttendanceMonitorSnapshot(snapshot, options.date);
+  }
+
+  async getMonthlyStatus(period?: string): Promise<BrowserMonthlyStatus> {
+    await this.ensureAuthenticated();
+    await this.openAttendanceCalendar();
+    const parsed = parseMonthlyCalendarSnapshot(
+      await this.readMonthlyCalendarSnapshot(),
+      period,
+    );
+    if (parsed.state === "unsubmitted") {
+      return { ...parsed, application: null };
+    }
+    const application = await this.findEmployeeMonthlyApplication(parsed.period);
+    const expectedStatuses = parsed.state === "pending"
+      ? new Set(["未承認", "申請中"])
+      : parsed.state === "approved"
+        ? new Set(["承認済"])
+        : new Set(["差戻し"]);
+    if (!expectedStatuses.has(application.status)) {
+      throw new CliError(
+        "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+        "The attendance calendar and employee application list exposed different monthly states.",
+        {
+          details: {
+            period: parsed.period,
+            calendarStatus: parsed.statusLabel,
+            applicationStatus: application.status,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    return { ...parsed, application };
+  }
+
+  async prepareMonthlyAction(
+    action: BrowserMonthlyAction,
+    period?: string,
+  ): Promise<{
+    action: BrowserMonthlyAction;
+    fingerprint: string;
+    preview: BrowserMonthlyPreview;
+  }> {
+    const status = await this.getMonthlyStatus(period);
+    if (!status.availableActions.includes(action)) {
+      throw new CliError(
+        "MONTHLY_ACTION_UNAVAILABLE",
+        `The requested monthly action '${action}' is not currently available in freee.`,
+        {
+          details: {
+            period: status.period,
+            state: status.state,
+            statusLabel: status.statusLabel,
+            availableActions: status.availableActions,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+
+    let preview: BrowserMonthlyPreview;
+    if (action === "submit") {
+      const create = this.page.locator('[data-testid="申請作成ボタン"]');
+      if (await create.count() !== 1 || !await create.isVisible() || !await create.isEnabled()) {
+        throw new CliError(
+          "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+          "The freee monthly submission creation control was not uniquely available.",
+          { details: { period: status.period }, exitCode: 2 },
+        );
+      }
+      await create.click();
+      await this.page.waitForLoadState("domcontentloaded", {
+        timeout: this.config.navigationTimeoutMs,
+      }).catch(() => undefined);
+      await this.page.getByRole("heading", { name: "月次勤怠締め申請を作成", exact: true })
+        .waitFor({ state: "visible", timeout: this.config.navigationTimeoutMs })
+        .catch(() => undefined);
+      await this.page.waitForFunction(() => {
+        const normalize = (value: string) => value.trim().replace(/\s+/g, " ");
+        const routeLabel = Array.from(document.querySelectorAll<HTMLElement>("label"))
+          .find((element) => normalize(element.innerText).startsWith("申請経路"));
+        const route = routeLabel?.closest("tr")?.querySelector<HTMLSelectElement>("select");
+        return Boolean(route?.selectedOptions[0]?.textContent?.trim());
+      }, undefined, { timeout: this.config.navigationTimeoutMs }).catch(() => undefined);
+      this.assertOfficialPage();
+      const submitForm = await this.readMonthlySubmitForm();
+      const submit = this.page.getByRole("button", { name: "申請", exact: true });
+      if (await submit.count() !== 1 || !await submit.isVisible() || !await submit.isEnabled()) {
+        throw new CliError(
+          "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+          "The freee monthly submission form did not expose one enabled final submission button.",
+          { details: { period: status.period }, exitCode: 2 },
+        );
+      }
+      preview = { status, submitForm };
+    } else {
+      const application = status.application;
+      if (!application) {
+        throw new CliError(
+          "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+          "The pending freee month did not expose its application number.",
+          { details: { period: status.period }, exitCode: 2 },
+        );
+      }
+      const applicationDetail = await this.openEmployeeApplicationDetail(application.id);
+      const withdraw = this.page.getByRole("button", { name: "申請を取り下げる", exact: true });
+      if (await withdraw.count() !== 1 || !await withdraw.isVisible() || !await withdraw.isEnabled()) {
+        throw new CliError(
+          "MONTHLY_ACTION_UNAVAILABLE",
+          "The pending monthly application did not expose one enabled withdrawal button.",
+          { details: { period: status.period, id: application.id }, exitCode: 2 },
+        );
+      }
+      preview = { status, applicationDetail };
+    }
+    return { action, fingerprint: createMonthlyFingerprint(preview, action), preview };
+  }
+
+  async commitMonthlyAction(
+    action: BrowserMonthlyAction,
+    fingerprint: string,
+    confirm: boolean,
+    period?: string,
+  ): Promise<{
+    action: BrowserMonthlyAction;
+    period: string;
+    verified: true;
+    result: BrowserMonthlyStatus;
+  }> {
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This command changes a real monthly attendance application. Prepare it first, obtain explicit current-message approval, then re-run with its fingerprint and `--confirm`.",
+        { details: { action, period: period ?? null }, exitCode: 2 },
+      );
+    }
+    const prepared = await this.prepareMonthlyAction(action, period);
+    if (prepared.fingerprint !== fingerprint) {
+      throw new CliError(
+        "MONTHLY_PREVIEW_CHANGED",
+        "The monthly attendance details or requested action changed after preview. No action was taken; prepare a new preview.",
+        {
+          details: {
+            action,
+            period: prepared.preview.status.period,
+            currentFingerprint: prepared.fingerprint,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    const label = action === "submit" ? "申請" : "申請を取り下げる";
+    const button = this.page.getByRole("button", { name: label, exact: true });
+    if (await button.count() !== 1 || !await button.isVisible() || !await button.isEnabled()) {
+      throw new CliError(
+        "MONTHLY_ACTION_UNAVAILABLE",
+        `The '${label}' monthly action was not one unique, visible, enabled button. No action was taken.`,
+        { details: { action, period: prepared.preview.status.period }, exitCode: 2 },
+      );
+    }
+    try {
+      await button.click({ timeout: this.config.navigationTimeoutMs });
+      await this.page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+      await this.page.waitForTimeout(1_000);
+    } catch {
+      throw new CliError(
+        "MONTHLY_ACTION_RESULT_UNKNOWN",
+        "The freee monthly application interaction did not complete cleanly. Read monthly status before any further write.",
+        { details: { action, period: prepared.preview.status.period }, exitCode: 2 },
+      );
+    }
+    let result: BrowserMonthlyStatus;
+    try {
+      result = await this.getMonthlyStatus(prepared.preview.status.period);
+    } catch {
+      throw new CliError(
+        "MONTHLY_ACTION_RESULT_UNKNOWN",
+        "freee did not expose a verifiable monthly status after the click. Do not retry; inspect monthly status before any further write.",
+        { details: { action, period: prepared.preview.status.period }, exitCode: 2 },
+      );
+    }
+    const verified = action === "submit"
+      ? (result.state === "pending" || result.state === "approved") && result.application !== null
+      : result.state === "returned";
+    if (!verified) {
+      throw new CliError(
+        "MONTHLY_ACTION_RESULT_UNKNOWN",
+        `freee returned monthly state '${result.state}' after '${action}'. Do not retry; inspect the application before any further write.`,
+        { details: { action, period: result.period, state: result.state }, exitCode: 2 },
+      );
+    }
+    return { action, period: result.period, verified: true, result };
   }
 
   async getApprovals(status: BrowserApprovalListStatus = "pending", page = 1): Promise<{
@@ -633,6 +834,280 @@ export class FreeeBrowserClient {
     }
   }
 
+  private async openAttendanceCalendar(): Promise<void> {
+    if (new URL(this.page.url()).pathname !== "/attendances") {
+      const calendarLink = this.page.locator('[data-testid="勤怠カレンダー画面へ"]');
+      if (await calendarLink.count() !== 1 || !await calendarLink.isVisible()) {
+        throw new CliError(
+          "BROWSER_MONTHLY_PAGE_UNAVAILABLE",
+          "The freee attendance calendar entry point was not unique and visible.",
+          { exitCode: 2 },
+        );
+      }
+      const href = await calendarLink.getAttribute("href");
+      if (href === null || !isAllowedFreeePageUrl(new URL(href, this.page.url()).href)) {
+        throw new CliError(
+          "BROWSER_NAVIGATION_BLOCKED",
+          "The attendance calendar link did not target an allowlisted official freee page.",
+          { exitCode: 2 },
+        );
+      }
+      await calendarLink.click();
+      await this.page.waitForLoadState("domcontentloaded", {
+        timeout: this.config.navigationTimeoutMs,
+      }).catch(() => undefined);
+    }
+    await this.settleAttendancePage();
+    if (new URL(this.page.url()).pathname !== "/attendances") {
+      throw new CliError(
+        "BROWSER_NAVIGATION_FAILED",
+        "freee did not open the expected attendance calendar page.",
+        { exitCode: 2 },
+      );
+    }
+  }
+
+  private async readMonthlyCalendarSnapshot(): Promise<{
+    periodLabels: string[];
+    statusLabels: string[];
+    createActionCount: number;
+  }> {
+    this.assertOfficialPage();
+    const create = this.page.locator('[data-testid="申請作成ボタン"]');
+    const snapshot = await this.page.evaluate(() => {
+      const normalize = (value: string) => value.trim().replace(/\s+/g, " ");
+      const bodyText = document.body?.innerText ?? "";
+      const periodLabels = Array.from(
+        new Set(bodyText.match(/20\d{2}年\d{1,2}月\d{1,2}日払い\s*[（(][^\n]{1,100}勤務分\s*[）)]/g) ?? []),
+      ).map(normalize);
+      const statusLabels = Array.from(
+        new Set(bodyText.match(/未申請|未承認|申請中|承認済|差戻し/g) ?? []),
+      );
+      return { periodLabels, statusLabels };
+    });
+    return {
+      ...snapshot,
+      createActionCount: await create.count() === 1 && await create.isVisible() && await create.isEnabled()
+        ? 1
+        : 0,
+    };
+  }
+
+  private async readMonthlySubmitForm(): Promise<BrowserMonthlySubmitForm> {
+    this.assertOfficialPage();
+    if (new URL(this.page.url()).pathname !== "/approval_requests") {
+      throw new CliError(
+        "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+        "The browser was not on the expected monthly application creation page.",
+        { exitCode: 2 },
+      );
+    }
+    const snapshot = await this.page.evaluate(() => {
+      const normalize = (value: string) => value.trim().replace(/\s+/g, " ");
+      const heading = Array.from(document.querySelectorAll<HTMLElement>("h1,h2,h3,h4"))
+        .find((element) => normalize(element.innerText) === "月次勤怠締め申請を作成");
+      const targetLabel = Array.from(document.querySelectorAll<HTMLElement>("label"))
+        .find((element) => normalize(element.innerText) === "対象月");
+      const routeLabel = Array.from(document.querySelectorAll<HTMLElement>("label"))
+        .find((element) => normalize(element.innerText).startsWith("申請経路"));
+      const targetRowText = targetLabel?.closest("tr") instanceof HTMLElement
+        ? normalize(targetLabel.closest("tr")!.innerText)
+        : "";
+      const routeControl = routeLabel?.closest("tr")?.querySelector<HTMLSelectElement>("select");
+      const tables = Array.from(document.querySelectorAll<HTMLTableElement>("table"))
+        .filter((table) => table.getClientRects().length > 0)
+        .map((table) => ({
+          headers: Array.from(table.querySelectorAll<HTMLElement>("thead th"))
+            .map((cell) => normalize(cell.innerText))
+            .filter(Boolean),
+          rows: Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr"))
+            .filter((row) => row.getClientRects().length > 0)
+            .map((row) => Array.from(row.querySelectorAll<HTMLElement>("th,td"))
+              .map((cell) => normalize(cell.innerText))),
+        }))
+        .filter((table) => table.headers.length > 0 || table.rows.length > 0);
+      const checks = (document.body?.innerText ?? "")
+        .split("\n")
+        .map(normalize)
+        .filter((value) => /エラー|アラート|警告|不備/.test(value) && value.length <= 300)
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .slice(0, 50);
+      return {
+        headingFound: heading !== undefined,
+        targetMonth: targetRowText.replace(/^対象月\s*/, ""),
+        route: routeControl?.selectedOptions[0]?.textContent?.trim() ?? "",
+        routeOptions: routeControl
+          ? Array.from(routeControl.options).map((option) => normalize(option.textContent ?? ""))
+          : [],
+        approvalSteps: tables,
+        checks,
+      };
+    });
+    if (!snapshot.headingFound || !snapshot.targetMonth || !snapshot.route
+        || snapshot.routeOptions.length === 0) {
+      throw new CliError(
+        "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+        "The freee monthly application form no longer matches the supported schema.",
+        {
+          details: {
+            headingFound: snapshot.headingFound,
+            targetMonthPresent: snapshot.targetMonth.length > 0,
+            routePresent: snapshot.route.length > 0,
+            routeOptionCount: snapshot.routeOptions.length,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    const { headingFound: _headingFound, ...form } = snapshot;
+    return form;
+  }
+
+  private async findEmployeeMonthlyApplication(period: string): Promise<BrowserApprovalSummary> {
+    await this.openEmployeeApplications();
+    const all = this.page.getByRole("button", { name: "全て", exact: true });
+    if (await all.count() !== 1 || !await all.isVisible()) {
+      throw new CliError(
+        "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+        "The employee application list did not expose one visible '全て' filter.",
+        { exitCode: 2 },
+      );
+    }
+    let pageInfo = await this.loadEmployeeApplicationPage(1, () => all.click());
+    const matches: BrowserApprovalSummary[] = [];
+    const lastPage = Math.max(1, pageInfo.pageCount);
+    for (let page = 1; page <= lastPage; page += 1) {
+      if (page > 1) {
+        const next = this.page.getByRole("button", { name: `ページ ${page}`, exact: true });
+        if (await next.count() !== 1 || !await next.isVisible() || !await next.isEnabled()) {
+          throw new CliError(
+            "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+            `The employee application page control for page ${page} was unavailable.`,
+            { exitCode: 2 },
+          );
+        }
+        pageInfo = await this.loadEmployeeApplicationPage(page, () => next.click());
+      }
+      const parsed = parseApprovalListSnapshot(await this.readApprovalListSnapshot());
+      matches.push(...parsed.applications.filter((application) =>
+        application.type === "月次勤怠締め"
+        && periodFromMonthlyTargetDate(application.targetDate) === period));
+      if (matches.length > 1) {
+        break;
+      }
+    }
+    if (matches.length !== 1) {
+      throw new CliError(
+        matches.length === 0 ? "MONTHLY_APPLICATION_NOT_FOUND" : "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+        matches.length === 0
+          ? "No monthly attendance application matched the selected freee month."
+          : "More than one monthly attendance application matched the selected freee month.",
+        { details: { period, matchCount: matches.length }, exitCode: 2 },
+      );
+    }
+    return matches[0]!;
+  }
+
+  private async openEmployeeApplications(): Promise<void> {
+    if (new URL(this.page.url()).pathname !== "/approval_requests") {
+      const navigation = this.page.locator('[data-testid="グロナビ_申請承認"]');
+      if (await navigation.count() !== 1 || !await navigation.isVisible()) {
+        throw new CliError(
+          "BROWSER_MONTHLY_PAGE_UNAVAILABLE",
+          "The freee employee application page was unavailable.",
+          { exitCode: 2 },
+        );
+      }
+      await navigation.click();
+      await this.page.waitForLoadState("domcontentloaded", {
+        timeout: this.config.navigationTimeoutMs,
+      }).catch(() => undefined);
+      await this.page.waitForTimeout(500);
+    }
+    const tab = this.page.getByRole("tab", { name: "申請", exact: true });
+    if (await tab.count() !== 1 || !await tab.isVisible()) {
+      throw new CliError(
+        "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+        "The freee application page did not expose one visible employee application tab.",
+        { exitCode: 2 },
+      );
+    }
+    if (await tab.getAttribute("aria-selected") !== "true") {
+      await tab.click();
+      await this.page.waitForTimeout(500);
+    }
+    if (await tab.getAttribute("aria-selected") !== "true") {
+      throw new CliError(
+        "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+        "freee did not select the employee application tab.",
+        { exitCode: 2 },
+      );
+    }
+  }
+
+  private async loadEmployeeApplicationPage(
+    page: number,
+    navigate: () => Promise<unknown>,
+  ): Promise<BrowserApprovalPageInfo> {
+    const responsePromise = this.page.waitForResponse((response) => {
+      try {
+        const url = new URL(response.url());
+        return response.request().method() === "GET"
+          && url.protocol === "https:"
+          && url.hostname === "p.secure.freee.co.jp"
+          && url.pathname === "/api/p/employees/approval_requests/requests"
+          && url.searchParams.get("page") === String(page)
+          && url.searchParams.get("q[status_eq]") === "all";
+      } catch {
+        return false;
+      }
+    }, { timeout: this.config.navigationTimeoutMs }).catch(() => null);
+    await navigate();
+    const response = await responsePromise;
+    if (!response?.ok()) {
+      throw new CliError(
+        "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+        `freee did not return employee application page ${page}.`,
+        { exitCode: 2 },
+      );
+    }
+    const pageInfo = parseApprovalPageInfo(await response.json());
+    if (pageInfo.page !== page) {
+      throw new CliError(
+        "BROWSER_MONTHLY_PAGE_UNEXPECTED",
+        `freee returned employee application page ${pageInfo.page} while ${page} was requested.`,
+        { exitCode: 2 },
+      );
+    }
+    await this.waitForApprovalRows(pageInfo.requestCodes);
+    return pageInfo;
+  }
+
+  private async openEmployeeApplicationDetail(id: string): Promise<BrowserApprovalDetail> {
+    await this.openEmployeeApplications();
+    const all = this.page.getByRole("button", { name: "全て", exact: true });
+    let pageInfo = await this.loadEmployeeApplicationPage(1, () => all.click());
+    const lastPage = Math.max(1, pageInfo.pageCount);
+    for (let page = 1; page <= lastPage; page += 1) {
+      if (page > 1) {
+        const next = this.page.getByRole("button", { name: `ページ ${page}`, exact: true });
+        pageInfo = await this.loadEmployeeApplicationPage(page, () => next.click());
+      }
+      const snapshot = await this.readApprovalListSnapshot();
+      const summary = parseApprovalListSnapshot(snapshot).applications
+        .find((application) => application.id === id);
+      if (summary) {
+        await this.openApprovalRow(id, snapshot);
+        return this.readApprovalDetail(summary);
+      }
+    }
+    throw new CliError(
+      "MONTHLY_APPLICATION_NOT_FOUND",
+      "The requested monthly application was not found in the employee application list.",
+      { details: { id }, exitCode: 2 },
+    );
+  }
+
   private async openApprovals(): Promise<void> {
     if (new URL(this.page.url()).pathname !== "/approval_requests") {
       const approvalNavigation = this.page.locator('[data-testid="グロナビ_申請承認"]');
@@ -833,25 +1308,7 @@ export class FreeeBrowserClient {
       );
     }
     try {
-      await this.page.waitForFunction((expectedRequestCodes) => {
-        const table = document.querySelector("table");
-        if (!table || !table.querySelector("thead th")) {
-          return false;
-        }
-        const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr"))
-          .filter((row) => row.getClientRects().length > 0);
-        if (rows.length !== expectedRequestCodes.length) {
-          return false;
-        }
-        const expected = new Set(expectedRequestCodes);
-        const actual = rows.map((row) => {
-          const matches = Array.from(row.querySelectorAll<HTMLElement>("th, td"))
-            .map((cell) => cell.innerText.trim())
-            .filter((value) => expected.has(value));
-          return matches.length === 1 ? matches[0] : null;
-        });
-        return actual.every((value, index) => value === expectedRequestCodes[index]);
-      }, pageInfo.requestCodes, { timeout: this.config.navigationTimeoutMs });
+      await this.waitForApprovalRows(pageInfo.requestCodes);
     } catch {
       throw new CliError(
         "BROWSER_APPROVAL_PAGE_UNEXPECTED",
@@ -860,6 +1317,28 @@ export class FreeeBrowserClient {
       );
     }
     return pageInfo;
+  }
+
+  private async waitForApprovalRows(expectedRequestCodes: string[]): Promise<void> {
+    await this.page.waitForFunction((expectedCodes) => {
+      const table = document.querySelector("table");
+      if (!table || !table.querySelector("thead th")) {
+        return false;
+      }
+      const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr"))
+        .filter((row) => row.getClientRects().length > 0);
+      if (rows.length !== expectedCodes.length) {
+        return false;
+      }
+      const expected = new Set(expectedCodes);
+      const actual = rows.map((row) => {
+        const matches = Array.from(row.querySelectorAll<HTMLElement>("th, td"))
+          .map((cell) => cell.innerText.trim())
+          .filter((value) => expected.has(value));
+        return matches.length === 1 ? matches[0] : null;
+      });
+      return actual.every((value, index) => value === expectedCodes[index]);
+    }, expectedRequestCodes, { timeout: this.config.navigationTimeoutMs });
   }
 
   private async readApprovalListSnapshot(): Promise<{

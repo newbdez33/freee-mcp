@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createApprovalFingerprint,
+  parseApprovalPageInfo,
   parseApprovalListSnapshot,
 } from "../dist/browser-approvals.js";
 
@@ -99,6 +100,29 @@ test("approval list parser accepts an empty pending list", () => {
   assert.deepEqual(
     parseApprovalListSnapshot({ headers, rows: [] }),
     { pageCount: 1, applications: [] },
+  );
+});
+
+test("approval response metadata binds DOM synchronization to one exact page", () => {
+  assert.deepEqual(parseApprovalPageInfo({
+    approval_requests: Array.from({ length: 50 }, (_, index) => ({ request_code: index + 1 })),
+    meta: {
+      current_page: 1,
+      total_pages: 16,
+      total_count: 766,
+      per: 50,
+    },
+  }), {
+    page: 1,
+    pageCount: 16,
+    totalCount: 766,
+    perPage: 50,
+    rowCount: 50,
+    requestCodes: Array.from({ length: 50 }, (_, index) => String(index + 1)),
+  });
+  assert.throws(
+    () => parseApprovalPageInfo({ approval_requests: [], meta: { current_page: 1 } }),
+    (error) => error.code === "BROWSER_APPROVAL_PAGE_UNEXPECTED",
   );
 });
 

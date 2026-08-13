@@ -2,16 +2,18 @@ import { chmod, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
-import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+import { chromium, type BrowserContext, type Locator, type Page, type Response } from "playwright";
 
 import { clockActionMap, type ClockAction } from "./attendance.js";
 import {
   createApprovalFingerprint,
   getApprovalRowOffset,
+  parseApprovalPageInfo,
   parseApprovalListSnapshot,
   type BrowserApprovalAction,
   type BrowserApprovalDetail,
   type BrowserApprovalListStatus,
+  type BrowserApprovalPageInfo,
   type BrowserApprovalSummary,
 } from "./browser-approvals.js";
 import {
@@ -35,6 +37,18 @@ const clockButtonLabels: Record<ClockAction, string> = {
   "break-start": "休憩開始",
   "break-end": "休憩終了",
   out: "退勤",
+};
+const approvalFilterLabels: Record<BrowserApprovalListStatus, string> = {
+  pending: "未承認",
+  returned: "差戻し",
+  approved: "承認済",
+  all: "全て",
+};
+const approvalApiStatuses: Record<BrowserApprovalListStatus, string> = {
+  pending: "in_progress",
+  returned: "feedback",
+  approved: "approved",
+  all: "all",
 };
 
 export interface PlaywrightRuntimeConfig {
@@ -260,24 +274,30 @@ export class FreeeBrowserClient {
     return parseAttendanceMonitorSnapshot(snapshot, options.date);
   }
 
-  async getApprovals(status: BrowserApprovalListStatus = "pending"): Promise<{
+  async getApprovals(status: BrowserApprovalListStatus = "pending", page = 1): Promise<{
     filter: BrowserApprovalListStatus;
+    page: number;
+    pageCount: number;
+    totalCount: number;
     applicationCount: number;
     applications: BrowserApprovalSummary[];
   }> {
+    if (!Number.isInteger(page) || page <= 0) {
+      throw new CliError("INVALID_APPROVAL_PAGE", "The approval page must be a positive integer.", {
+        details: { page },
+        exitCode: 2,
+      });
+    }
     await this.ensureAuthenticated();
     await this.openApprovals();
-    await this.selectApprovalFilter(status);
+    let pageInfo = await this.selectApprovalFilter(status);
+    pageInfo = await this.selectApprovalPage(status, page, pageInfo);
     const parsed = parseApprovalListSnapshot(await this.readApprovalListSnapshot());
-    if (parsed.pageCount !== 1) {
-      throw new CliError(
-        "BROWSER_APPROVAL_PAGINATION_UNSUPPORTED",
-        "The freee approval list spans multiple pages. No incomplete list was returned.",
-        { details: { pageCount: parsed.pageCount }, exitCode: 2 },
-      );
-    }
     return {
       filter: status,
+      page: pageInfo.page,
+      pageCount: pageInfo.pageCount,
+      totalCount: pageInfo.totalCount,
       applicationCount: parsed.applications.length,
       applications: parsed.applications,
     };
@@ -286,8 +306,8 @@ export class FreeeBrowserClient {
   async getApprovalDetail(id: string): Promise<BrowserApprovalDetail> {
     await this.ensureAuthenticated();
     await this.openApprovals();
-    await this.selectApprovalFilter("all");
-    const summary = await this.findAndOpenApproval(id);
+    const pageInfo = await this.selectApprovalFilter("all");
+    const summary = await this.findAndOpenApproval(id, "all", pageInfo);
     return this.readApprovalDetail(summary);
   }
 
@@ -362,12 +382,32 @@ export class FreeeBrowserClient {
         { details: { id, action }, exitCode: 2 },
       );
     }
-    const result = await this.getApprovalDetail(id);
+    let result: BrowserApprovalDetail;
+    try {
+      result = await this.getApprovalDetail(id);
+    } catch (error) {
+      if (error instanceof CliError && error.code === "APPROVAL_NOT_FOUND") {
+        throw new CliError(
+          "APPROVAL_ACTION_RESULT_UNKNOWN",
+          "The application left the visible approval queue after the click, but freee did not expose a verifiable final state. Do not retry; inspect the application in freee before any further write.",
+          { details: { id, action }, exitCode: 2 },
+        );
+      }
+      throw error;
+    }
+    const expectedStatus = action === "approve" ? "承認済" : "差戻し";
     if (result.availableActions.includes(action) || createApprovalFingerprint(result, action) === fingerprint) {
       throw new CliError(
         "APPROVAL_ACTION_RESULT_UNKNOWN",
         "freee did not expose a verified changed application state. Read the application again before any further write.",
         { details: { id, action }, exitCode: 2 },
+      );
+    }
+    if (result.application.status !== expectedStatus) {
+      throw new CliError(
+        "APPROVAL_ACTION_RESULT_UNKNOWN",
+        `freee returned application status '${result.application.status}' instead of '${expectedStatus}'. Do not retry; inspect the application before any further write.`,
+        { details: { id, action, status: result.application.status }, exitCode: 2 },
       );
     }
     return { id, action, verified: true, result };
@@ -647,14 +687,10 @@ export class FreeeBrowserClient {
     }
   }
 
-  private async selectApprovalFilter(status: BrowserApprovalListStatus): Promise<void> {
-    const labels: Record<BrowserApprovalListStatus, string> = {
-      pending: "未承認",
-      returned: "差戻し",
-      approved: "承認済",
-      all: "全て",
-    };
-    const label = labels[status];
+  private async selectApprovalFilter(
+    status: BrowserApprovalListStatus,
+  ): Promise<BrowserApprovalPageInfo> {
+    const label = approvalFilterLabels[status];
     const button = this.page.getByRole("button", { name: label, exact: true });
     if (await button.count() !== 1 || !await button.isVisible()) {
       throw new CliError(
@@ -663,10 +699,7 @@ export class FreeeBrowserClient {
         { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
       );
     }
-    if (await button.getAttribute("aria-pressed") !== "true") {
-      await button.click();
-    }
-    await this.page.waitForTimeout(500);
+    const pageInfo = await this.loadApprovalPage(status, 1, () => button.click());
     if (await button.getAttribute("aria-pressed") !== "true") {
       throw new CliError(
         "BROWSER_APPROVAL_PAGE_UNEXPECTED",
@@ -674,6 +707,137 @@ export class FreeeBrowserClient {
         { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
       );
     }
+    return pageInfo;
+  }
+
+  private async selectApprovalPage(
+    status: BrowserApprovalListStatus,
+    page: number,
+    initial: BrowserApprovalPageInfo,
+  ): Promise<BrowserApprovalPageInfo> {
+    if (page === initial.page) {
+      return initial;
+    }
+    if (page < initial.page || page > initial.pageCount) {
+      throw new CliError(
+        "INVALID_APPROVAL_PAGE",
+        `Approval page ${page} is outside the available ${initial.pageCount} pages.`,
+        { details: { page, pageCount: initial.pageCount }, exitCode: 2 },
+      );
+    }
+    let current = initial;
+    for (let nextPage = initial.page + 1; nextPage <= page; nextPage += 1) {
+      const button = this.page.getByRole("button", { name: `ページ ${nextPage}`, exact: true });
+      if (await button.count() !== 1 || !await button.isVisible() || !await button.isEnabled()) {
+        throw new CliError(
+          "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+          `The freee approval page control for page ${nextPage} was not uniquely available.`,
+          { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
+        );
+      }
+      current = await this.loadApprovalPage(status, nextPage, () => button.click());
+      if (await button.getAttribute("aria-current") !== "true") {
+        throw new CliError(
+          "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+          `freee did not select approval page ${nextPage}.`,
+          { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
+        );
+      }
+    }
+    return current;
+  }
+
+  private async loadApprovalPage(
+    status: BrowserApprovalListStatus,
+    page: number,
+    navigate: () => Promise<unknown>,
+  ): Promise<BrowserApprovalPageInfo> {
+    const responsePromise = this.page.waitForResponse((response) => {
+      try {
+        const url = new URL(response.url());
+        return response.request().method() === "GET"
+          && url.protocol === "https:"
+          && url.hostname === "p.secure.freee.co.jp"
+          && url.pathname === "/api/p/employees/approval_requests/approvals"
+          && url.searchParams.get("page") === String(page)
+          && url.searchParams.get("q[status_eq]") === approvalApiStatuses[status];
+      } catch {
+        return false;
+      }
+    }, { timeout: this.config.navigationTimeoutMs }).catch(() => null);
+    let response: Response | null;
+    try {
+      await navigate();
+      response = await responsePromise;
+    } catch {
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        `freee did not finish loading approval page ${page} for '${approvalFilterLabels[status]}'.`,
+        { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
+      );
+    }
+    if (!response) {
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        `freee did not return approval page ${page} for '${approvalFilterLabels[status]}'.`,
+        { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
+      );
+    }
+    if (!response.ok()) {
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        `freee returned HTTP ${response.status()} while loading the approval list.`,
+        { exitCode: 2 },
+      );
+    }
+    let pageInfo: BrowserApprovalPageInfo;
+    try {
+      pageInfo = parseApprovalPageInfo(await response.json());
+    } catch (error) {
+      if (error instanceof CliError) {
+        throw error;
+      }
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        "The freee approval list response was not valid JSON.",
+        { exitCode: 2 },
+      );
+    }
+    if (pageInfo.page !== page) {
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        `freee returned approval page ${pageInfo.page} while page ${page} was requested.`,
+        { exitCode: 2 },
+      );
+    }
+    try {
+      await this.page.waitForFunction((expectedRequestCodes) => {
+        const table = document.querySelector("table");
+        if (!table || !table.querySelector("thead th")) {
+          return false;
+        }
+        const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr"))
+          .filter((row) => row.getClientRects().length > 0);
+        if (rows.length !== expectedRequestCodes.length) {
+          return false;
+        }
+        const expected = new Set(expectedRequestCodes);
+        const actual = rows.map((row) => {
+          const matches = Array.from(row.querySelectorAll<HTMLElement>("th, td"))
+            .map((cell) => cell.innerText.trim())
+            .filter((value) => expected.has(value));
+          return matches.length === 1 ? matches[0] : null;
+        });
+        return actual.every((value, index) => value === expectedRequestCodes[index]);
+      }, pageInfo.requestCodes, { timeout: this.config.navigationTimeoutMs });
+    } catch {
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        "The freee approval table did not finish rendering the loaded response.",
+        { details: await this.getApprovalPageDiagnostics(), exitCode: 2 },
+      );
+    }
+    return pageInfo;
   }
 
   private async readApprovalListSnapshot(): Promise<{
@@ -713,24 +877,36 @@ export class FreeeBrowserClient {
     });
   }
 
-  private async findAndOpenApproval(id: string): Promise<BrowserApprovalSummary> {
-    const snapshot = await this.readApprovalListSnapshot();
-    const parsed = parseApprovalListSnapshot(snapshot);
-    if (parsed.pageCount !== 1) {
-      throw new CliError(
-        "BROWSER_APPROVAL_PAGINATION_UNSUPPORTED",
-        "The requested application may be on another page. No row was opened.",
-        { details: { id, pageCount: parsed.pageCount }, exitCode: 2 },
-      );
+  private async findAndOpenApproval(
+    id: string,
+    status: BrowserApprovalListStatus,
+    initial: BrowserApprovalPageInfo,
+  ): Promise<BrowserApprovalSummary> {
+    const lastPage = Math.max(1, initial.pageCount);
+    let current = initial;
+    for (let page = 1; page <= lastPage; page += 1) {
+      if (page > 1) {
+        current = await this.selectApprovalPage(status, page, current);
+      }
+      const snapshot = await this.readApprovalListSnapshot();
+      const parsed = parseApprovalListSnapshot(snapshot);
+      const summary = parsed.applications.find((application) => application.id === id);
+      if (summary) {
+        await this.openApprovalRow(id, snapshot);
+        return summary;
+      }
     }
-    const summary = parsed.applications.find((application) => application.id === id);
-    if (!summary) {
-      throw new CliError(
-        "APPROVAL_NOT_FOUND",
-        "The requested application No. was not found in the complete freee approval list.",
-        { details: { id }, exitCode: 2 },
-      );
-    }
+    throw new CliError(
+      "APPROVAL_NOT_FOUND",
+      "The requested application No. was not found after reading every freee approval page.",
+      { details: { id, pageCount: initial.pageCount }, exitCode: 2 },
+    );
+  }
+
+  private async openApprovalRow(
+    id: string,
+    snapshot: { headers: string[]; rows: string[][] },
+  ): Promise<void> {
     const idColumnIndex = snapshot.headers.indexOf("No.");
     if (idColumnIndex < 0) {
       throw new CliError(
@@ -765,7 +941,6 @@ export class FreeeBrowserClient {
         { details: { id }, exitCode: 2 },
       );
     }
-    return summary;
   }
 
   private async readApprovalDetail(summary: BrowserApprovalSummary): Promise<BrowserApprovalDetail> {

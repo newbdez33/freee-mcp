@@ -131,9 +131,11 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
     description: "Read applications visible in the current account's approval workflow. Defaults to pending applications.",
     inputSchema: {
       status: z.enum(["pending", "returned", "approved", "all"]).default("pending"),
+      page: z.number().int().positive().default(1)
+        .describe("One freee approval-list page. Use pageCount from the result to continue."),
     },
     annotations: readOnlyAnnotations,
-  }, async ({ status }) => executeTool(() => service.getApprovals(status)));
+  }, async ({ status, page }) => executeTool(() => service.getApprovals(status, page)));
 
   server.registerTool("freee_approval_detail", {
     title: "freee application detail",

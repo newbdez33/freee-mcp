@@ -88,6 +88,27 @@ test("approval commit validates its preview fingerprint before launching a brows
   );
 });
 
+test("approval list validates its page before launching a browser", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "dist/cli.js",
+      "approvals",
+      "list",
+      "--page",
+      "0",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, FREEE_BACKEND: "playwright" },
+    }),
+    (error) => {
+      assert.equal(error.code, 2);
+      const parsed = JSON.parse(error.stderr);
+      assert.equal(parsed.error.code, "INVALID_ARGUMENTS");
+      return true;
+    },
+  );
+});
+
 test("OAuth login stops before credential-store access when confirm is missing", async () => {
   await assert.rejects(
     execFileAsync(process.execPath, ["dist/cli.js", "auth", "login"], {

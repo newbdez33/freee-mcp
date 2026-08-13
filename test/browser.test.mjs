@@ -6,6 +6,8 @@ import {
   isAllowedFreeePageUrl,
   readPlaywrightRuntimeConfig,
 } from "../dist/browser.js";
+import { createApprovalFingerprint } from "../dist/browser-approvals.js";
+import { CliError } from "../dist/errors.js";
 
 const labelsBySelector = new Map([
   ['[data-testid="出勤"]', "in"],
@@ -76,6 +78,9 @@ function createFakeApprovalBrowser() {
   const state = {
     approvalTabSelected: false,
     filter: null,
+    page: 1,
+    rendered: false,
+    responseWaiter: null,
     clicks: [],
     url: "https://p.secure.freee.co.jp/approval_requests",
   };
@@ -104,7 +109,28 @@ function createFakeApprovalBrowser() {
           },
           async click() {
             state.filter = options.name;
+            state.page = 1;
+            state.rendered = false;
             state.clicks.push(`filter:${options.name}`);
+            state.responseWaiter?.(createApprovalResponse(options.name, 1));
+          },
+        };
+      }
+      const pageMatch = role === "button" ? /^ページ (\d+)$/.exec(options.name) : null;
+      if (pageMatch) {
+        const page = Number(pageMatch[1]);
+        return {
+          async count() { return page === 2 ? 1 : 0; },
+          async isVisible() { return page === 2; },
+          async isEnabled() { return page === 2; },
+          async getAttribute(name) {
+            return name === "aria-current" && state.page === page ? "true" : "false";
+          },
+          async click() {
+            state.page = page;
+            state.rendered = false;
+            state.clicks.push(`page:${page}`);
+            state.responseWaiter?.(createApprovalResponse(state.filter, page));
           },
         };
       }
@@ -124,7 +150,7 @@ function createFakeApprovalBrowser() {
           "現在の承認者",
           "チェック結果",
         ],
-        rows: [[
+        rows: state.rendered ? [[
           "",
           "未承認",
           "9876",
@@ -137,9 +163,25 @@ function createFakeApprovalBrowser() {
           "承認者 B",
           "問題なし",
           "",
-        ]],
+        ]] : [],
         pageCount: 1,
       };
+    },
+    waitForResponse(predicate) {
+      return new Promise((resolve, reject) => {
+        state.responseWaiter = (response) => {
+          state.responseWaiter = null;
+          if (!predicate(response)) {
+            reject(new Error("approval response predicate did not match"));
+            return;
+          }
+          resolve(response);
+        };
+      });
+    },
+    async waitForFunction(_predicate, expectedRequestCodes) {
+      assert.deepEqual(expectedRequestCodes, ["9876"]);
+      state.rendered = true;
     },
     async waitForLoadState() {},
     async waitForTimeout() {},
@@ -161,6 +203,29 @@ function createFakeApprovalBrowser() {
   const client = new FreeeBrowserClient(context, page, credentials, config);
   client.ensureAuthenticated = async () => {};
   return { client, state };
+}
+
+function createApprovalResponse(label, page) {
+  const status = {
+    "未承認": "in_progress",
+    "差戻し": "feedback",
+    "承認済": "approved",
+    "全て": "all",
+  }[label];
+  return {
+    url() {
+      return `https://p.secure.freee.co.jp/api/p/employees/approval_requests/approvals?page=${page}&q%5Bstatus_eq%5D=${status}`;
+    },
+    request() { return { method() { return "GET"; } }; },
+    ok() { return true; },
+    status() { return 200; },
+    async json() {
+      return {
+        approval_requests: [{ request_code: 9876 }],
+        meta: { current_page: page, total_pages: 2, total_count: 2, per: 1 },
+      };
+    },
+  };
 }
 
 test("browser main-frame allowlist accepts only the three official HTTPS hosts", () => {
@@ -214,9 +279,23 @@ test("Playwright approval list selects the manager queue before its pending filt
   const result = await client.getApprovals("pending");
 
   assert.deepEqual(state.clicks, ["approval-tab", "filter:未承認"]);
+  assert.equal(result.page, 1);
+  assert.equal(result.pageCount, 2);
+  assert.equal(result.totalCount, 2);
   assert.equal(result.applicationCount, 1);
   assert.equal(result.applications[0].applicant, "申請者 A");
   assert.equal(result.applications[0].type, "休暇");
+});
+
+test("Playwright approval list navigates to one explicit later page", async () => {
+  const { client, state } = createFakeApprovalBrowser();
+
+  const result = await client.getApprovals("approved", 2);
+
+  assert.deepEqual(state.clicks, ["approval-tab", "filter:承認済", "page:2"]);
+  assert.equal(result.page, 2);
+  assert.equal(result.pageCount, 2);
+  assert.equal(result.applicationCount, 1);
 });
 
 test("Playwright approval commit stops before page access without explicit confirmation", async () => {
@@ -255,4 +334,49 @@ test("Playwright approval commit stops when the prepared detail fingerprint chan
     (error) => error.code === "APPROVAL_PREVIEW_CHANGED",
   );
   assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright approval commit reports an unknown result when the clicked item disappears", async () => {
+  const { client, state } = createFakeBrowser([]);
+  const detail = {
+    application: {
+      id: "1234",
+      status: "未承認",
+      applicant: "申請者 A",
+      type: "休暇",
+      targetDate: "2026/08/12",
+      content: "有休 全休",
+      reason: "私用",
+      appliedAt: "2026/08/11",
+      currentApprover: "承認者 A",
+      checkResult: null,
+    },
+    fields: [],
+    tables: [],
+    detailLines: ["申請内容"],
+    availableActions: ["approve", "return"],
+  };
+  let detailReads = 0;
+  client.getApprovalDetail = async () => {
+    detailReads += 1;
+    if (detailReads === 1) {
+      return detail;
+    }
+    throw new CliError("APPROVAL_NOT_FOUND", "missing after click", { exitCode: 2 });
+  };
+  client.page.getByRole = (_role, options) => {
+    assert.equal(options.name, "承認");
+    return {
+      async count() { return 1; },
+      async isVisible() { return true; },
+      async isEnabled() { return true; },
+      async click() { state.clicks.push("approve"); },
+    };
+  };
+
+  await assert.rejects(
+    client.commitApprovalAction("1234", "approve", createApprovalFingerprint(detail, "approve"), true),
+    (error) => error.code === "APPROVAL_ACTION_RESULT_UNKNOWN",
+  );
+  assert.deepEqual(state.clicks, ["approve"]);
 });

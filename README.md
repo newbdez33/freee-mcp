@@ -198,9 +198,11 @@ npm run freee -- monthly commit-action --action submit|withdraw \
 
 # Current employee applications: inspect options, prepare, review, then commit
 npm run freee -- requests prepare-create --kind leave --date YYYY-MM-DD \
-  --leave-type "EXACT_FREEE_LABEL" --reason "REASON"
+  --leave-type "EXACT_FREEE_LABEL" \
+  [--leave-start HH:MM --leave-end HH:MM] --reason "REASON"
 npm run freee -- requests commit-create --kind leave --date YYYY-MM-DD \
-  --leave-type "EXACT_FREEE_LABEL" --reason "REASON" \
+  --leave-type "EXACT_FREEE_LABEL" \
+  [--leave-start HH:MM --leave-end HH:MM] --reason "REASON" \
   --fingerprint PREVIEW_SHA256 --confirm
 npm run freee -- requests prepare-create --kind work-time-correction \
   --date YYYY-MM-DD --clock-in HH:MM --clock-out HH:MM \

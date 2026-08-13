@@ -1395,6 +1395,63 @@ export class FreeeBrowserClient {
         { exitCode: 2 },
       );
     }
+    await this.captureDiagnosticScreenshot("personal-application-leave-type-selected");
+    const leaveTypeRow = leaveType.locator("xpath=ancestor::tr[1]");
+    const leaveTimeInputs = leaveTypeRow.locator("input:visible");
+    const leaveTimeInputCount = await leaveTimeInputs.count();
+    if (leaveTimeInputCount === 0) {
+      if (application.leaveStart || application.leaveEnd) {
+        throw new CliError(
+          "PERSONAL_APPLICATION_LEAVE_TIME_UNAVAILABLE",
+          "The selected freee leave type does not expose a leave time range.",
+          { details: { leaveType: application.leaveType }, exitCode: 2 },
+        );
+      }
+    } else {
+      if (leaveTimeInputCount !== 2) {
+        throw new CliError(
+          "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+          "The selected freee leave type exposed an ambiguous leave time range.",
+          {
+            details: { leaveType: application.leaveType, leaveTimeInputCount },
+            exitCode: 2,
+          },
+        );
+      }
+      if (!application.leaveStart || !application.leaveEnd) {
+        throw new CliError(
+          "PERSONAL_APPLICATION_LEAVE_TIME_REQUIRED",
+          "The selected freee leave type requires an explicit leave_start and leave_end.",
+          { details: { leaveType: application.leaveType }, exitCode: 2 },
+        );
+      }
+      for (const [index, expected] of [application.leaveStart, application.leaveEnd].entries()) {
+        const input = leaveTimeInputs.nth(index);
+        if (!await input.isVisible() || !await input.isEnabled()) {
+          throw new CliError(
+            "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+            "The selected freee leave type did not expose two enabled leave time inputs.",
+            { details: { leaveType: application.leaveType }, exitCode: 2 },
+          );
+        }
+        await input.fill(expected);
+        await input.press("Tab");
+        if (await input.inputValue() !== expected) {
+          throw new CliError(
+            "PERSONAL_APPLICATION_LEAVE_TIME_UNAVAILABLE",
+            "freee did not retain the requested leave time range.",
+            {
+              details: {
+                leaveType: application.leaveType,
+                leaveStart: application.leaveStart,
+                leaveEnd: application.leaveEnd,
+              },
+              exitCode: 2,
+            },
+          );
+        }
+      }
+    }
     await this.page.locator('[data-testid="申請理由"]').fill(application.reason);
     await this.captureDiagnosticScreenshot("personal-application-fields-complete");
     return this.readPersonalApplicationRoute();
@@ -2468,7 +2525,13 @@ function assertPrivatePathOutsideRepository(
 }
 
 function assertDiagnosticPathIsNotBroad(diagnosticDirectory: string): void {
-  const broadPaths = new Set([resolve("/"), resolve(homedir()), resolve(tmpdir())]);
+  const broadPaths = new Set([
+    resolve("/"),
+    resolve(homedir()),
+    resolve(tmpdir()),
+    resolve("/tmp"),
+    resolve("/var/tmp"),
+  ]);
   if (broadPaths.has(resolve(diagnosticDirectory))) {
     throw new CliError(
       "BROWSER_DIAGNOSTIC_PATH_UNSAFE",

@@ -175,12 +175,30 @@ test("MCP tools return safe structured envelopes and default the approval filter
       arguments: { date: "2026-08-14" },
     });
     assert.equal(options.structuredContent.data.leaveTypesDate, "2026-08-14");
+    const halfDay = await client.callTool({
+      name: "freee_personal_application_prepare_create",
+      arguments: {
+        kind: "leave",
+        date: "2026-08-14",
+        leave_type: "有休（半休）",
+        leave_start: "13:00",
+        leave_end: "18:00",
+      },
+    });
+    assert.equal(halfDay.structuredContent.data.action, "create");
     assert.deepEqual(service.calls, [
       ["monthly-status", "2026-08"],
       ["approvals-list", "pending", 1],
       ["approvals-list", "approved", 2],
       ["requests-list", "pending", 1],
       ["requests-options", "2026-08-14"],
+      ["requests-prepare-create", {
+        kind: "leave",
+        date: "2026-08-14",
+        leaveType: "有休（半休）",
+        leaveStart: "13:00",
+        leaveEnd: "18:00",
+      }],
     ]);
   } finally {
     await client.close();

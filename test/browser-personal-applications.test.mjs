@@ -22,6 +22,8 @@ test("personal leave input requires a real date and exact leave type", () => {
     clockOut: null,
     breakStart: null,
     breakEnd: null,
+    leaveStart: null,
+    leaveEnd: null,
   });
   assert.throws(
     () => normalizePersonalApplicationCreateInput({
@@ -38,6 +40,34 @@ test("personal leave input requires a real date and exact leave type", () => {
     }),
     (error) => error.code === "INVALID_PERSONAL_APPLICATION_LEAVE_TYPE",
   );
+  assert.deepEqual(normalizePersonalApplicationCreateInput({
+    kind: "leave",
+    date: "2026-08-14",
+    leaveType: "有休（半休）",
+    leaveStart: "13:00",
+    leaveEnd: "18:00",
+  }), {
+    kind: "leave",
+    date: "2026-08-14",
+    leaveType: "有休（半休）",
+    leaveStart: "13:00",
+    leaveEnd: "18:00",
+    reason: "",
+    clockIn: null,
+    clockOut: null,
+    breakStart: null,
+    breakEnd: null,
+  });
+  assert.throws(
+    () => normalizePersonalApplicationCreateInput({
+      kind: "leave",
+      date: "2026-08-14",
+      leaveType: "有休（半休）",
+      leaveStart: "18:00",
+      leaveEnd: "13:00",
+    }),
+    (error) => error.code === "INVALID_PERSONAL_APPLICATION_LEAVE_TIME",
+  );
 });
 
 test("work-time correction accepts one optional break pair and rejects partial pairs", () => {
@@ -53,6 +83,8 @@ test("work-time correction accepts one optional break pair and rejects partial p
     date: "2026-08-14",
     reason: "",
     leaveType: null,
+    leaveStart: null,
+    leaveEnd: null,
     clockIn: "09:00",
     clockOut: "18:00",
     breakStart: "12:00",

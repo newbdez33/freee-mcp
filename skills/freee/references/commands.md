@@ -158,7 +158,8 @@ Prepare leave creation without submitting:
 ```bash
 npm run freee -- requests prepare-create \
   --kind leave --date YYYY-MM-DD \
-  --leave-type "EXACT_LABEL_FROM_OPTIONS" [--reason "REASON"]
+  --leave-type "EXACT_LABEL_FROM_OPTIONS" \
+  [--leave-start HH:MM --leave-end HH:MM] [--reason "REASON"]
 ```
 
 Prepare one-segment work-time correction without submitting:
@@ -170,7 +171,7 @@ npm run freee -- requests prepare-create \
   [--break-start HH:MM --break-end HH:MM] [--reason "REASON"]
 ```
 
-The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. Only after the current user message approves that exact preview, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`.
+The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. When the selected leave type exposes a time range, both `--leave-start` and `--leave-end` are required and are bound into the preview; default `00:00` values are never accepted. Only after the current user message approves that exact preview, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`.
 
 Prepare and commit a withdrawal separately:
 

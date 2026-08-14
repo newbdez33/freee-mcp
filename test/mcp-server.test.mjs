@@ -79,6 +79,21 @@ function createFakeService() {
       calls.push(["approval-commit", id, action, fingerprint, confirm]);
       return { backend: "playwright", id, action, verified: true };
     },
+    async getMonthlyApprovals(status, page) {
+      calls.push(["monthly-approvals-list", status, page]);
+      return { backend: "playwright", filter: status, page, applicationCount: 0, applications: [] };
+    },
+    async getMonthlyApprovalReview(id) {
+      calls.push(["monthly-approval-review", id]);
+      return { backend: "playwright", period: "2026-08", application: { application: { id } } };
+    },
+    async prepareMonthlyApprovalAction(id, action) {
+      return { backend: "playwright", id, action, fingerprint: "1".repeat(64) };
+    },
+    async commitMonthlyApprovalAction(id, action, fingerprint, confirm) {
+      calls.push(["monthly-approval-commit", id, action, fingerprint, confirm]);
+      return { backend: "playwright", id, action, verified: true };
+    },
   };
 }
 
@@ -118,6 +133,10 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
       "freee_personal_application_prepare_withdraw",
       "freee_personal_application_commit_withdraw",
       "freee_approvals_list",
+      "freee_monthly_approvals_list",
+      "freee_monthly_approval_review",
+      "freee_monthly_approval_prepare_action",
+      "freee_monthly_approval_commit_action",
       "freee_approval_detail",
       "freee_approval_prepare_action",
       "freee_approval_commit_action",
@@ -134,6 +153,14 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
     );
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_approval_commit_action").annotations.destructiveHint,
+      true,
+    );
+    assert.equal(
+      listed.tools.find((tool) => tool.name === "freee_monthly_approval_review").annotations.readOnlyHint,
+      true,
+    );
+    assert.equal(
+      listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action").annotations.destructiveHint,
       true,
     );
     assert.equal(
@@ -178,6 +205,16 @@ test("MCP tools return safe structured envelopes and default the approval filter
       arguments: { status: "approved", page: 2 },
     });
     assert.equal(approved.structuredContent.data.page, 2);
+    const monthlyApprovals = await client.callTool({
+      name: "freee_monthly_approvals_list",
+      arguments: {},
+    });
+    assert.equal(monthlyApprovals.structuredContent.data.filter, "pending");
+    const monthlyReview = await client.callTool({
+      name: "freee_monthly_approval_review",
+      arguments: { id: "101" },
+    });
+    assert.equal(monthlyReview.structuredContent.data.period, "2026-08");
     const requests = await client.callTool({
       name: "freee_personal_applications_list",
       arguments: {},
@@ -209,6 +246,8 @@ test("MCP tools return safe structured envelopes and default the approval filter
       ["monthly-status", "2026-08"],
       ["approvals-list", "pending", 1],
       ["approvals-list", "approved", 2],
+      ["monthly-approvals-list", "pending", 1],
+      ["monthly-approval-review", "101"],
       ["requests-list", "pending", 1],
       ["requests-options", "2026-08-14"],
       ["requests-prepare-create", {
@@ -280,6 +319,18 @@ test("MCP commit schema rejects missing explicit confirmation before service inv
       },
     });
     assert.equal(monthly.isError, true);
+    assert.deepEqual(service.calls, []);
+
+    const monthlyApproval = await client.callTool({
+      name: "freee_monthly_approval_commit_action",
+      arguments: {
+        id: "1234",
+        action: "approve",
+        fingerprint: "1".repeat(64),
+        confirm: false,
+      },
+    });
+    assert.equal(monthlyApproval.isError, true);
     assert.deepEqual(service.calls, []);
 
     const create = await client.callTool({

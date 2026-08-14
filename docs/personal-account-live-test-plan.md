@@ -184,7 +184,7 @@ MCP 已实现 freee 官方 `取消申請` 流程，但这不是直接删除原�
 
 发布后：
 
-1. 更新 Claude Code plugin，验证 MCP 版本、23 个工具发现、Playwright 后端和只读调用；不得调用 API 工具。
+1. 更新 Claude Code plugin，验证 MCP 版本、27 个工具发现、Playwright 后端和只读调用；不得调用 API 工具。
 2. 在 Codex 中安装或更新用户级软件包，重复只读发现并执行一次缺少确认的拒绝测试。
 3. 仅当 OpenCode 和 Pi 已经实际安装时才继续验证；不得为了填满测试矩阵安装无关软件。
 4. 确认更新保留 plugin data、System Keychain 凭据和仓库外的浏览器 profile。

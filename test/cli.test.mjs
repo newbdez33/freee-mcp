@@ -24,6 +24,10 @@ test("the compiled CLI entry point is runnable without credentials for help", as
   assert.match(result.stdout, /requests commit-withdraw/);
   assert.match(result.stdout, /approvals prepare-action/);
   assert.match(result.stdout, /approvals commit-action/);
+  assert.match(result.stdout, /monthly-approvals list/);
+  assert.match(result.stdout, /monthly-approvals review/);
+  assert.match(result.stdout, /monthly-approvals prepare-action/);
+  assert.match(result.stdout, /monthly-approvals commit-action/);
   assert.doesNotMatch(result.stdout, /migrate/);
   assert.match(result.stdout, /browser configure/);
   assert.match(result.stdout, /browser credentials-status/);
@@ -74,6 +78,32 @@ test("approval commit validates its preview fingerprint before launching a brows
     execFileAsync(process.execPath, [
       "dist/cli.js",
       "approvals",
+      "commit-action",
+      "--id",
+      "1234",
+      "--action",
+      "approve",
+      "--fingerprint",
+      "invalid",
+      "--confirm",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, FREEE_BACKEND: "playwright" },
+    }),
+    (error) => {
+      assert.equal(error.code, 2);
+      const parsed = JSON.parse(error.stderr);
+      assert.equal(parsed.error.code, "INVALID_APPROVAL_FINGERPRINT");
+      return true;
+    },
+  );
+});
+
+test("monthly approval commit validates its preview fingerprint before launching a browser", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "dist/cli.js",
+      "monthly-approvals",
       "commit-action",
       "--id",
       "1234",

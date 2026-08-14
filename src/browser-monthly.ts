@@ -11,6 +11,7 @@ export interface BrowserMonthlyStatus {
   periodLabel: string;
   state: BrowserMonthlyState;
   statusLabel: string;
+  warnings: string[];
   application: BrowserApprovalSummary | null;
   availableActions: BrowserMonthlyAction[];
 }
@@ -32,6 +33,7 @@ export interface BrowserMonthlyPreview {
 export interface MonthlyCalendarSnapshot {
   periodLabels: string[];
   statusLabels: string[];
+  warnings: string[];
   createActionCount: number;
 }
 
@@ -42,6 +44,18 @@ const monthlyStatusMap = new Map<string, BrowserMonthlyState>([
   ["承認済", "approved"],
   ["差戻し", "returned"],
 ]);
+
+export function selectMonthlyStatusLabels(scopeTexts: string[]): string[] {
+  for (const scopeText of scopeTexts) {
+    const labels = Array.from(
+      new Set(scopeText.match(/未申請|未承認|申請中|承認済|差戻し/g) ?? []),
+    );
+    if (labels.length > 0) {
+      return labels;
+    }
+  }
+  return [];
+}
 
 export function parseMonthlyCalendarSnapshot(
   snapshot: MonthlyCalendarSnapshot,
@@ -97,6 +111,8 @@ export function parseMonthlyCalendarSnapshot(
     periodLabel,
     state,
     statusLabel,
+    warnings: [...new Set(snapshot.warnings.map((warning) => warning.trim()))]
+      .filter((warning) => warning.length > 0),
     availableActions: state === "unsubmitted"
       ? ["submit"]
       : state === "pending"

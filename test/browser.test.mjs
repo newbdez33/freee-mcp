@@ -502,7 +502,12 @@ test("Playwright monthly approval review binds detail, member summary, daily att
     hasIssue: true,
   };
   client.getApprovalDetail = async () => detail;
-  client.getTeamStatus = async (options) => {
+  client.openAttendanceMonitor = async () => {};
+  const selectedPeriods = [];
+  client.selectAttendanceWorkPeriod = async (period) => {
+    selectedPeriods.push(period);
+  };
+  client.readTeamStatus = async (options) => {
     assert.deepEqual(options, { date: "2026-08-01" });
     return { period: "2026年8月", memberCount: 1, issueMemberCount: 1, members: [member] };
   };
@@ -526,6 +531,78 @@ test("Playwright monthly approval review binds detail, member summary, daily att
   assert.equal(result.attendance.dayCount, 1);
   assert.equal(result.attendance.alertDayCount, 1);
   assert.ok(result.automaticChecks.some((check) => check.includes("確認が必要です")));
+  assert.deepEqual(selectedPeriods, ["2026-08", "2026-08"]);
+});
+
+test("Playwright attendance period navigation selects the derived payment month and verifies the work month", async () => {
+  const { client } = createFakeBrowser([]);
+  const contexts = [
+    { paymentPeriod: "2026-09", workPeriod: "2026-08" },
+    { paymentPeriod: "2026-08", workPeriod: "2026-07" },
+  ];
+  client.readAttendancePeriodContext = async () => contexts.shift() ?? {
+    paymentPeriod: "2026-08",
+    workPeriod: "2026-07",
+  };
+  let selectedPaymentPeriod = null;
+  client.selectAttendancePaymentPeriod = async (period) => {
+    selectedPaymentPeriod = period;
+  };
+  client.settleAttendancePage = async () => {};
+
+  await client.selectAttendanceWorkPeriod("2026-07");
+
+  assert.equal(selectedPaymentPeriod, "2026-08");
+});
+
+test("Playwright attendance period navigation leaves an already selected work month unchanged", async () => {
+  const { client } = createFakeBrowser([]);
+  client.readAttendancePeriodContext = async () => ({
+    paymentPeriod: "2026-09",
+    workPeriod: "2026-08",
+  });
+  client.selectAttendancePaymentPeriod = async () => {
+    throw new Error("an already selected month must not be clicked");
+  };
+
+  await client.selectAttendanceWorkPeriod("2026-08");
+});
+
+test("Playwright personal monthly status navigates to an explicitly requested work month", async () => {
+  const { client } = createFakeBrowser([]);
+  const selectedPeriods = [];
+  client.ensureAuthenticated = async () => {};
+  client.openAttendanceCalendar = async () => {};
+  client.selectAttendanceWorkPeriod = async (period) => {
+    selectedPeriods.push(period);
+  };
+  client.captureDiagnosticScreenshot = async () => {};
+  client.readMonthlyCalendarSnapshot = async () => ({
+    periodLabels: ["2026年8月25日払い （2026年7月1日 〜 2026年7月31日 勤務分）"],
+    statusLabels: ["未申請"],
+    warnings: [],
+    createActionCount: 1,
+  });
+
+  const status = await client.getMonthlyStatus("2026-07");
+
+  assert.deepEqual(selectedPeriods, ["2026-07"]);
+  assert.equal(status.period, "2026-07");
+  assert.equal(status.state, "unsubmitted");
+});
+
+test("Playwright attendance period navigation stops when freee does not show the target work month", async () => {
+  const { client } = createFakeBrowser([]);
+  client.readAttendancePeriodContext = async () => ({
+    paymentPeriod: "2026-09",
+    workPeriod: "2026-08",
+  });
+  client.selectAttendancePaymentPeriod = async () => {};
+
+  await assert.rejects(
+    client.selectAttendanceWorkPeriod("2026-07"),
+    (error) => error.code === "ATTENDANCE_PERIOD_NAVIGATION_FAILED",
+  );
 });
 
 test("Playwright monthly approval commit stops before page access without confirmation or with a stale review", async () => {

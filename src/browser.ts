@@ -30,9 +30,12 @@ import {
   collectMonthlyAutomaticChecks,
   createMonthlyApprovalFingerprint,
   isMonthlyApproval,
+  parseAttendancePeriodContext,
   parseMonthlyAttendanceTableSnapshot,
   requireMonthlyApproval,
   selectMonthlyApprovalMember,
+  targetPaymentPeriodForWorkPeriod,
+  type AttendancePeriodContext,
   type BrowserMonthlyApprovalReview,
   type MonthlyAttendanceTableSnapshot,
 } from "./browser-monthly-approvals.js";
@@ -334,6 +337,15 @@ export class FreeeBrowserClient {
   }> {
     await this.ensureAuthenticated();
     await this.openAttendanceMonitor();
+    return this.readTeamStatus(options);
+  }
+
+  private async readTeamStatus(options: BrowserTeamStatusOptions = {}): Promise<{
+    period: string;
+    memberCount: number;
+    issueMemberCount: number;
+    members: BrowserTeamMemberStatus[];
+  }> {
     const snapshot = await this.page.evaluate(() => {
       const table = document.querySelector("table");
       if (!table) {
@@ -380,6 +392,9 @@ export class FreeeBrowserClient {
   async getMonthlyStatus(period?: string): Promise<BrowserMonthlyStatus> {
     await this.ensureAuthenticated();
     await this.openAttendanceCalendar();
+    if (period) {
+      await this.selectAttendanceWorkPeriod(period);
+    }
     await this.captureDiagnosticScreenshot("monthly-status");
     const parsed = parseMonthlyCalendarSnapshot(
       await this.readMonthlyCalendarSnapshot(),
@@ -1086,9 +1101,12 @@ export class FreeeBrowserClient {
   async getMonthlyApprovalReview(id: string): Promise<BrowserMonthlyApprovalReview> {
     const application = await this.getApprovalDetail(id);
     const period = requireMonthlyApproval(application);
-    const team = await this.getTeamStatus({ date: `${period}-01` });
+    await this.openAttendanceMonitor();
+    await this.selectAttendanceWorkPeriod(period);
+    const team = await this.readTeamStatus({ date: `${period}-01` });
     const attendanceSummary = selectMonthlyApprovalMember(application, team.members);
     await this.openMonthlyApplicantAttendance(application, attendanceSummary);
+    await this.selectAttendanceWorkPeriod(period);
     await this.selectAttendanceTableView();
     const attendance = parseMonthlyAttendanceTableSnapshot(
       await this.readMonthlyAttendanceTableSnapshot(),
@@ -1455,6 +1473,204 @@ export class FreeeBrowserClient {
         .filter((value, index, values) => values.indexOf(value) === index);
       return { selectedPeriod, tables, warnings };
     });
+  }
+
+  private async selectAttendanceWorkPeriod(targetWorkPeriod: string): Promise<void> {
+    const before = await this.readAttendancePeriodContext();
+    if (before.workPeriod === targetWorkPeriod) {
+      return;
+    }
+    const targetPaymentPeriod = targetPaymentPeriodForWorkPeriod(before, targetWorkPeriod);
+    await this.selectAttendancePaymentPeriod(targetPaymentPeriod);
+    let after: AttendancePeriodContext | null = null;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      await this.page.waitForTimeout(200);
+      try {
+        after = await this.readAttendancePeriodContext();
+      } catch {
+        continue;
+      }
+      if (after.paymentPeriod === targetPaymentPeriod && after.workPeriod === targetWorkPeriod) {
+        await this.settleAttendancePage();
+        return;
+      }
+    }
+    throw new CliError(
+      "ATTENDANCE_PERIOD_NAVIGATION_FAILED",
+      "freee did not display the requested work month after selecting its payment month.",
+      {
+        details: {
+          requestedWorkPeriod: targetWorkPeriod,
+          targetPaymentPeriod,
+          displayedWorkPeriod: after?.workPeriod ?? null,
+          displayedPaymentPeriod: after?.paymentPeriod ?? null,
+        },
+        exitCode: 2,
+      },
+    );
+  }
+
+  private async readAttendancePeriodContext(): Promise<AttendancePeriodContext> {
+    this.assertOfficialPage();
+    const pageText = await this.page.locator("body").innerText();
+    return parseAttendancePeriodContext(pageText);
+  }
+
+  private async selectAttendancePaymentPeriod(targetPaymentPeriod: string): Promise<void> {
+    const match = targetPaymentPeriod.match(/^(20\d{2})-(0[1-9]|1[0-2])$/);
+    if (!match) {
+      throw new CliError(
+        "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
+        "The target payment period must use YYYY-MM.",
+        { details: { targetPaymentPeriod }, exitCode: 2 },
+      );
+    }
+    const targetYear = Number(match[1]);
+    const targetMonth = Number(match[2]);
+    for (let attempt = 0; attempt < 21; attempt += 1) {
+      const navigator = await this.markAttendancePeriodNavigator(targetMonth);
+      if (Math.abs(targetYear - navigator.year) > 20) {
+        throw new CliError(
+          "ATTENDANCE_PERIOD_NAVIGATION_UNSUPPORTED",
+          "The requested payment year is outside the supported bounded navigation range.",
+          {
+            details: { currentYear: navigator.year, targetYear, maximumYearDistance: 20 },
+            exitCode: 2,
+          },
+        );
+      }
+      if (navigator.year === targetYear) {
+        const month = this.page.locator('[data-freee-agent-period-nav="target-month"]');
+        if (await month.count() !== 1 || !await month.isVisible() || !await month.isEnabled()) {
+          throw new CliError(
+            "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
+            "The requested payment month was not one unique visible enabled navigation control.",
+            { details: { targetPaymentPeriod }, exitCode: 2 },
+          );
+        }
+        await month.click();
+        return;
+      }
+      const direction = targetYear < navigator.year ? "previous-year" : "next-year";
+      const control = this.page.locator(`[data-freee-agent-period-nav="${direction}"]`);
+      if (await control.count() !== 1 || !await control.isVisible() || !await control.isEnabled()) {
+        throw new CliError(
+          "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
+          "The freee year navigation control was not one unique visible enabled control.",
+          { details: { currentYear: navigator.year, targetYear, direction }, exitCode: 2 },
+        );
+      }
+      await control.click();
+      let changedYear: number | null = null;
+      for (let waitAttempt = 0; waitAttempt < 25; waitAttempt += 1) {
+        await this.page.waitForTimeout(200);
+        try {
+          const changed = await this.markAttendancePeriodNavigator(targetMonth);
+          if (changed.year !== navigator.year) {
+            changedYear = changed.year;
+            break;
+          }
+        } catch {
+          // freee may briefly replace the navigator while rendering the next year.
+        }
+      }
+      if (changedYear === null) {
+        throw new CliError(
+          "ATTENDANCE_PERIOD_NAVIGATION_FAILED",
+          "freee did not change the visible navigation year after one click.",
+          { details: { currentYear: navigator.year, targetYear, direction }, exitCode: 2 },
+        );
+      }
+    }
+    throw new CliError(
+      "ATTENDANCE_PERIOD_NAVIGATION_FAILED",
+      "freee did not reach the requested payment year within the bounded navigation steps.",
+      { details: { targetPaymentPeriod }, exitCode: 2 },
+    );
+  }
+
+  private async markAttendancePeriodNavigator(targetMonth: number): Promise<{
+    year: number;
+  }> {
+    this.assertOfficialPage();
+    const result = await this.page.evaluate((month) => {
+      const marker = "data-freee-agent-period-nav";
+      document.querySelectorAll(`[${marker}]`).forEach((element) => element.removeAttribute(marker));
+      const visible = (element: Element): element is HTMLElement =>
+        element instanceof HTMLElement && element.getClientRects().length > 0;
+      const label = (element: HTMLElement) =>
+        (element.getAttribute("aria-label")
+          ?? element.getAttribute("title")
+          ?? element.innerText
+          ?? "").trim().replace(/\s+/g, " ");
+      const controls = Array.from(document.querySelectorAll<HTMLElement>("a[href], button"))
+        .filter(visible);
+      const monthControls = controls.filter((element) => /^(?:[1-9]|1[0-2])月$/.test(label(element)));
+      const rootCandidates = new Set<HTMLElement>();
+      for (const monthControl of monthControls) {
+        for (let root = monthControl.parentElement; root; root = root.parentElement) {
+          const descendantMonths = Array.from(root.querySelectorAll<HTMLElement>("a[href], button"))
+            .filter(visible)
+            .map(label)
+            .filter((value) => /^(?:[1-9]|1[0-2])月$/.test(value));
+          if (descendantMonths.length === 12 && new Set(descendantMonths).size === 12) {
+            rootCandidates.add(root);
+            break;
+          }
+        }
+      }
+      const roots = Array.from(rootCandidates)
+        .filter((candidate) => !Array.from(rootCandidates)
+          .some((other) => other !== candidate && candidate.contains(other)));
+      if (roots.length !== 1 || !roots[0]) {
+        return { ok: false as const, code: "root", count: roots.length };
+      }
+      const root = roots[0];
+      const years = Array.from(new Set((root.innerText.match(/20\d{2}年/g) ?? [])
+        .map((value) => Number(value.slice(0, 4)))));
+      if (years.length !== 1 || !years[0]) {
+        return { ok: false as const, code: "year", count: years.length };
+      }
+      const rootControls = Array.from(root.querySelectorAll<HTMLElement>("a[href], button"))
+        .filter(visible);
+      const rootMonthControls = rootControls
+        .filter((element) => /^(?:[1-9]|1[0-2])月$/.test(label(element)));
+      const targetMonths = rootMonthControls.filter((element) => label(element) === `${month}月`);
+      if (targetMonths.length !== 1 || !targetMonths[0]) {
+        return { ok: false as const, code: "month", count: targetMonths.length };
+      }
+      const otherControls = rootControls.filter((element) => !rootMonthControls.includes(element));
+      let previous = otherControls.filter((element) =>
+        /^(前年|前の年|前年度|前へ|Previous year)$/i.test(label(element)));
+      let next = otherControls.filter((element) =>
+        /^(翌年|次の年|次年度|次へ|Next year)$/i.test(label(element)));
+      if (previous.length === 0 && next.length === 0 && otherControls.length === 2) {
+        previous = [otherControls[0]!];
+        next = [otherControls[1]!];
+      }
+      if (previous.length !== 1 || !previous[0] || next.length !== 1 || !next[0]) {
+        return {
+          ok: false as const,
+          code: "arrows",
+          count: otherControls.length,
+          previousCount: previous.length,
+          nextCount: next.length,
+        };
+      }
+      root.setAttribute(marker, "root");
+      previous[0].setAttribute(marker, "previous-year");
+      next[0].setAttribute(marker, "next-year");
+      targetMonths[0].setAttribute(marker, "target-month");
+      return { ok: true as const, year: years[0] };
+    }, targetMonth);
+    if (!result.ok) {
+      throw new CliError(
+        "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
+        "The freee year/month navigator no longer matches the supported unambiguous structure.",
+        { details: result, exitCode: 2 },
+      );
+    }
+    return { year: result.year };
   }
 
   private async ensureAuthenticated(): Promise<void> {

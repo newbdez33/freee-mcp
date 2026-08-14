@@ -25,7 +25,7 @@ const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/)
 const monthlyActionSchema = z.enum(["submit", "withdraw"])
   .describe("submit creates a 月次勤怠締め application; withdraw uses 申請を取り下げる.");
 const periodSchema = z.string().regex(/^\d{4}-\d{2}$/).optional()
-  .describe("Optional work month in YYYY-MM. It must match the month selected in freee.");
+  .describe("Optional work month in YYYY-MM. Playwright selects and verifies that work month before reading.");
 const personalApplicationKindSchema = z.enum(["leave", "overtime", "work-time-correction"])
   .describe("Use the options tool first. Overtime is reported as unavailable until its company form is enabled and safely supported.");
 const personalApplicationDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -140,7 +140,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_monthly_status", {
     title: "freee monthly attendance status",
-    description: "Read the selected month's personal 月次勤怠締め application status and available actions without changing freee.",
+    description: "Read the requested or currently selected personal 月次勤怠締め month and its available actions without changing freee.",
     inputSchema: { period: periodSchema },
     annotations: readOnlyAnnotations,
   }, async ({ period }) => executeTool(() => service.getMonthlyStatus(period)));

@@ -5,9 +5,11 @@ import {
   collectMonthlyAutomaticChecks,
   createMonthlyApprovalFingerprint,
   isMonthlyApproval,
+  parseAttendancePeriodContext,
   parseMonthlyAttendanceTableSnapshot,
   requireMonthlyApproval,
   selectMonthlyApprovalMember,
+  targetPaymentPeriodForWorkPeriod,
 } from "../dist/browser-monthly-approvals.js";
 
 function monthlyDetail() {
@@ -73,6 +75,26 @@ test("monthly approval guards the exact application type and period", () => {
       application: { ...detail.application, type: "休暇" },
     }),
     (error) => error.code === "MONTHLY_APPROVAL_TYPE_MISMATCH",
+  );
+});
+
+test("attendance period navigation preserves the payment/work-month offset", () => {
+  const current = parseAttendancePeriodContext(
+    "2026年9月25日払い （2026年8月1日 〜 2026年8月31日 勤務分）",
+  );
+  assert.deepEqual(current, { paymentPeriod: "2026-09", workPeriod: "2026-08" });
+  assert.equal(targetPaymentPeriodForWorkPeriod(current, "2026-07"), "2026-08");
+  assert.equal(targetPaymentPeriodForWorkPeriod(current, "2025-12"), "2026-01");
+  assert.throws(
+    () => parseAttendancePeriodContext("2026年8月"),
+    (error) => error.code === "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
+  );
+  assert.throws(
+    () => parseAttendancePeriodContext(
+      "2026年9月25日払い （2026年8月1日 〜 2026年8月31日 勤務分） "
+      + "2026年8月25日払い （2026年7月1日 〜 2026年7月31日 勤務分）",
+    ),
+    (error) => error.code === "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
   );
 });
 

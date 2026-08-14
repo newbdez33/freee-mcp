@@ -120,7 +120,7 @@ npm run freee -- requests detail --id APPLICATION_NO
 
 `team status --date` currently accepts a date only when its month matches the month selected by freee. `--company-id` and `--group-id` are not accepted in the Playwright branch; the CLI uses the company and visible management range already selected by freee and never guesses another one. `me` is not implemented for Playwright.
 
-`monthly status --period` reads the personal month selected in freee's attendance calendar. The period is a safety guard and must match that selected month; the command does not silently navigate to another month. It returns `unsubmitted`, `pending`, `approved`, or `returned`, preserves the corresponding freee label, identifies the exact matching monthly application when present, lists only currently available actions, and returns visible calendar warnings. Present every warning and stop before commit while warnings remain unless the user has resolved or explicitly reviewed them in freee.
+`monthly status --period` selects and reads that personal work month in freee's attendance calendar. Playwright derives the matching payment month from freee's currently displayed payment-month/work-month pair, uses the bounded official year/month navigator, and verifies both resulting months before parsing. Omitting `--period` reads the currently selected month. It returns `unsubmitted`, `pending`, `approved`, or `returned`, preserves the corresponding freee label, identifies the exact matching monthly application when present, lists only currently available actions, and returns visible calendar warnings. Present every warning and stop before commit while warnings remain unless the user has resolved or explicitly reviewed them in freee.
 
 ## Monthly attendance actions
 
@@ -221,7 +221,7 @@ npm run freee -- monthly-approvals prepare-action \
 
 The list filters each synchronized source approval page to monthly closing applications. Follow `pageCount` when more source pages exist; `sourceTotalCount` is the unfiltered source count, and `applicationCount` is the monthly count on that page.
 
-The review requires the application type to be exactly `月次勤怠締め` or `月次勤怠締め申請` and its target to identify one work month. It maps the applicant and department to one unique visible attendance-monitor member, requires the monitor's selected month to match, opens the official employee attendance link, and parses one unique daily attendance table. It returns the application detail, member monthly summary, every daily row, per-day alerts, page warnings, and consolidated automatic checks. Another month, duplicate member, missing official link, or ambiguous table stops without a write.
+The review requires the application type to be exactly `月次勤怠締め` or `月次勤怠締め申請` and its target to identify one work month. It selects and verifies that work month on the attendance monitor, maps the applicant and department to one unique visible member, opens the official employee attendance link, verifies the same work month again, and parses one unique daily attendance table. It returns the application detail, member monthly summary, every daily row, per-day alerts, page warnings, and consolidated automatic checks. Ambiguous or failed period navigation, a duplicate member, a missing official link, or an ambiguous table stops without a write.
 
 The prepare fingerprint binds the entire review and requested action. Only after the current user message explicitly approves that exact preview, commit once:
 
@@ -350,7 +350,10 @@ Important error codes:
 - `BROWSER_TEAM_PAGE_UNEXPECTED`: freee changed the attendance-monitor table schema; stop rather than returning misaligned employee data.
 - `BROWSER_APPROVAL_PAGE_UNEXPECTED` or `BROWSER_APPROVAL_DETAIL_UNEXPECTED`: freee changed the supported application list/detail view; stop without writing.
 - `BROWSER_MONTHLY_PAGE_UNEXPECTED` or `BROWSER_MONTHLY_PERIOD_AMBIGUOUS`: freee changed or ambiguously rendered the monthly workflow; stop without writing.
-- `BROWSER_MONTHLY_PERIOD_UNSUPPORTED`: select the intended month in freee or use the currently selected month; do not continue against another period.
+- `ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED`: freee did not expose one unambiguous payment-month/work-month label or official year/month navigator; stop without reading or writing another month.
+- `ATTENDANCE_PERIOD_NAVIGATION_UNSUPPORTED`: the requested month is outside the bounded navigation range; stop rather than clicking an unbounded number of times.
+- `ATTENDANCE_PERIOD_NAVIGATION_FAILED`: freee did not reach and verify the requested work month; stop without returning data from the displayed month.
+- `BROWSER_MONTHLY_PERIOD_UNSUPPORTED`: the final monthly snapshot still did not match the requested work month; stop without continuing against another period.
 - `MONTHLY_ACTION_UNAVAILABLE`: report the current monthly state and available actions; do not substitute another write.
 - `MONTHLY_PREVIEW_CHANGED`: no action occurred. Prepare again, present the new preview, and obtain new explicit approval.
 - `MONTHLY_ACTION_RESULT_UNKNOWN`: do not retry. Read monthly status and inspect freee before considering another write.
@@ -378,7 +381,7 @@ Important error codes:
 
 ## Current scope
 
-Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw; synchronized employee-side personal application list/detail plus fingerprint-bound leave/work-time-correction creation, approved-application cancellation, and pending withdrawal; Playwright monthly department attendance-monitor summaries; and synchronized paginated manager-side application list/detail plus fingerprint-bound single-item approval/return.
+Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw and verified work-month navigation; synchronized employee-side personal application list/detail plus fingerprint-bound leave/work-time-correction creation, approved-application cancellation, and pending withdrawal; Playwright monthly department attendance-monitor summaries; synchronized paginated manager-side application list/detail plus fingerprint-bound single-item approval/return; and dedicated monthly closing review/approval/return with verified navigation to the applicant's work month.
 
 Implemented but unavailable to the current API role: API-backed direct department member daily punch status. Do not fall back.
 

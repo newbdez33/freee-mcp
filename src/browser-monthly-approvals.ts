@@ -16,6 +16,11 @@ export interface MonthlyAttendanceTableSnapshot {
   warnings: string[];
 }
 
+export interface AttendancePeriodContext {
+  workPeriod: string;
+  paymentPeriod: string;
+}
+
 export interface BrowserMonthlyAttendanceDay {
   date: string;
   fields: Array<{ label: string; value: string }>;
@@ -42,6 +47,38 @@ export interface BrowserMonthlyApprovalReview {
 
 export function isMonthlyApproval(application: BrowserApprovalSummary): boolean {
   return monthlyApprovalTypes.has(application.type.trim());
+}
+
+export function parseAttendancePeriodContext(pageText: string): AttendancePeriodContext {
+  const normalized = pageText.trim().replace(/\s+/g, " ");
+  const periodLabels = Array.from(normalized.matchAll(
+    /(20\d{2})年(\d{1,2})月\d{1,2}日払い\s*[（(]\s*(20\d{2})年(\d{1,2})月\d{1,2}日\s*[〜～-]\s*20\d{2}年\d{1,2}月\d{1,2}日\s*勤務分\s*[）)]/g,
+  ));
+  const contexts = Array.from(new Map(periodLabels.map((label) => {
+    const context = {
+      paymentPeriod: normalizePeriod(Number(label[1]), Number(label[2])),
+      workPeriod: normalizePeriod(Number(label[3]), Number(label[4])),
+    };
+    return [`${context.paymentPeriod}:${context.workPeriod}`, context] as const;
+  })).values());
+  if (contexts.length !== 1 || !contexts[0]) {
+    throw new CliError(
+      "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
+      "The freee attendance page did not expose one payment month and work month for safe navigation.",
+      { details: { periodContextCount: contexts.length }, exitCode: 2 },
+    );
+  }
+  return contexts[0];
+}
+
+export function targetPaymentPeriodForWorkPeriod(
+  current: AttendancePeriodContext,
+  targetWorkPeriod: string,
+): string {
+  const currentWorkIndex = periodIndex(current.workPeriod);
+  const currentPaymentIndex = periodIndex(current.paymentPeriod);
+  const targetWorkIndex = periodIndex(targetWorkPeriod);
+  return periodFromIndex(currentPaymentIndex + targetWorkIndex - currentWorkIndex);
 }
 
 export function requireMonthlyApproval(detail: BrowserApprovalDetail): string {
@@ -267,4 +304,33 @@ function normalizeDailyDate(value: string | undefined, year: number, month: numb
 function normalizeUnique(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim().replace(/\s+/g, " "))))
     .filter((value) => value.length > 0);
+}
+
+function periodIndex(period: string): number {
+  const match = period.match(/^(20\d{2})-(0[1-9]|1[0-2])$/);
+  if (!match) {
+    throw new CliError(
+      "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
+      "The attendance period must use YYYY-MM.",
+      { details: { period }, exitCode: 2 },
+    );
+  }
+  return Number(match[1]) * 12 + Number(match[2]) - 1;
+}
+
+function periodFromIndex(index: number): string {
+  const year = Math.floor(index / 12);
+  const month = index % 12 + 1;
+  return normalizePeriod(year, month);
+}
+
+function normalizePeriod(year: number, month: number): string {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    throw new CliError(
+      "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
+      "freee exposed an invalid attendance period.",
+      { details: { year, month }, exitCode: 2 },
+    );
+  }
+  return `${year}-${String(month).padStart(2, "0")}`;
 }

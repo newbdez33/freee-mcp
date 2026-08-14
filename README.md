@@ -137,7 +137,7 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_clock_prepare_action` | Read-only preview | Generate a punch preview and fingerprint |
 | `freee_clock_commit_action` | Write | Revalidate the fingerprint and create one real punch |
 | `freee_team_status` | Read-only | Read a department or current web-management monthly summary |
-| `freee_monthly_status` | Read-only | Read the selected month's personal 月次勤怠締め status |
+| `freee_monthly_status` | Read-only | Read a requested or currently selected personal 月次勤怠締め month |
 | `freee_monthly_prepare_action` | Read-only preview | Generate a monthly submit or withdrawal preview and fingerprint |
 | `freee_monthly_commit_action` | Write | Revalidate the fingerprint and submit or withdraw one monthly application |
 | `freee_personal_application_options` | Read-only | Show enabled personal application types and date-specific leave types |
@@ -185,6 +185,8 @@ npm run freee -- approvals list
 npm run freee -- approvals list --status all
 npm run freee -- approvals list --status approved --page 2
 npm run freee -- approvals detail --id APPLICATION_NO
+npm run freee -- monthly-approvals list --status pending|returned|approved|all --page 1
+npm run freee -- monthly-approvals review --id APPLICATION_NO
 npm run freee -- browser status
 npm run freee -- browser credentials-status
 
@@ -224,6 +226,13 @@ npm run freee -- requests commit-withdraw --id APPLICATION_NO \
 npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return
 npm run freee -- approvals commit-action --id APPLICATION_NO \
   --action approve|return --fingerprint PREVIEW_SHA256 --confirm
+
+# Monthly attendance approvals: review first, then commit only after exact approval
+npm run freee -- monthly-approvals prepare-action \
+  --id APPLICATION_NO --action approve|return
+npm run freee -- monthly-approvals commit-action \
+  --id APPLICATION_NO --action approve|return \
+  --fingerprint PREVIEW_SHA256 --confirm
 ```
 
 Commands emit JSON and identify the selected business backend. Before a real punch, the service rechecks the available action using the same backend. Before an application action, it rereads the complete detail and requires the SHA-256 fingerprint to match the read-only preview. An unavailable action, changed detail, ambiguous page, or missing confirmation stops before an API POST or browser click. If a commit returns no complete JSON envelope, treat its result as unknown and never retry the write; use the corresponding read-only status, list, or detail command to verify the exact target.
@@ -236,7 +245,7 @@ The Playwright backend supports System Keychain credentials, persistent login, p
 
 ## Monthly attendance applications
 
-`monthly status` reads the month currently selected in freee's attendance calendar and returns its normalized state, freee status label, matching application when present, available actions, and visible calendar warnings such as days that still require an application or correction. An optional `--period YYYY-MM` is a guard: it must match the selected month and does not silently navigate to another period. Agents must present non-empty warnings and stop before submission until the user resolves or explicitly reviews them in freee.
+`monthly status` reads the requested work month, or the month currently selected in freee when `--period` is omitted. With `--period YYYY-MM`, the Playwright backend reads freee's current payment-month/work-month pair, preserves that offset, uses the official bounded year/month navigator, and verifies that both the expected payment month and requested work month are displayed before parsing any status. A missing or ambiguous navigator, an unexpected period label, or a failed post-navigation check stops safely. The result includes the normalized state, freee status label, matching application when present, available actions, and visible calendar warnings such as days that still require an application or correction. Agents must present non-empty warnings and stop before submission until the user resolves or explicitly reviews them in freee.
 
 Monthly writes use the same two-step safety model as other writes. `monthly prepare-action --action submit` opens the creation form, reads the target month, application route, approval steps, form checks, and calendar warnings, but does not click the final `申請` button. Calendar warnings are bound into the fingerprint. `--action withdraw` reads the exact pending application and verifies that `申請を取り下げる` is available. The commit command rereads the complete preview, requires the unchanged fingerprint and explicit current-message confirmation, performs one click, and verifies the resulting monthly state. An ambiguous or unknown result is never retried automatically.
 
@@ -263,7 +272,7 @@ Before committing, the CLI rereads the detail. A fingerprint mismatch, missing b
 
 `monthly-approvals list` filters one synchronized manager approval page to `月次勤怠締め` applications. Use its `pageCount` to inspect later source pages; `sourceTotalCount` is the complete count before type filtering, while `applicationCount` is the monthly count on the returned page.
 
-`monthly-approvals review --id` first verifies the exact application type and work month, then maps the applicant to one unique visible member in the selected attendance-monitor month. It opens that employee's official attendance page and returns the monthly summary, one uniquely identified daily attendance table, per-day alerts, page warnings, application detail, and consolidated automatic checks. The selected attendance-monitor month must already match the application's work month. A different month, duplicate employee identity, missing attendance link, or changed table schema stops safely instead of returning a partial review.
+`monthly-approvals review --id` first verifies the exact application type and work month. It then navigates the attendance monitor to that work month, maps the applicant to one unique visible member, opens the employee's official attendance page, and verifies the same work month again before reading the daily table. Navigation preserves freee's displayed payment-month/work-month offset and validates the resulting pair. An ambiguous navigator, a navigation mismatch, duplicate employee identity, missing attendance link, or changed table schema stops safely instead of returning a partial review. A successful review returns the monthly summary, one uniquely identified daily attendance table, per-day alerts, page warnings, application detail, and consolidated automatic checks.
 
 Use `monthly-approvals prepare-action --id NO --action approve|return` before a monthly manager write. Its fingerprint binds the full application, monthly summary, daily rows, alerts, checks, and requested action. Only a new current-message confirmation of that exact preview permits `monthly-approvals commit-action ... --confirm`. The commit reconstructs the review, reopens the exact application, clicks once, and applies the same post-write verification as the general approval workflow. Batch actions are not supported, and this specialized path remains pending real freee validation.
 

@@ -376,14 +376,14 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_approval_detail", {
     title: "freee application detail",
-    description: "Read one application, including applicant, dates, content, reason, comments, approval route, and automatic checks.",
+    description: "Read one application, including applicant, dates, content, reason, comments, approval route, and automatic checks. A supported 勤務時間修正 also returns structured workTimeChange.before and workTimeChange.after values; null time fields mean freee displayed 未入力.",
     inputSchema: { id: approvalIdSchema },
     annotations: readOnlyAnnotations,
   }, async ({ id }) => executeTool(() => service.getApprovalDetail(id)));
 
   server.registerTool("freee_approval_prepare_action", {
     title: "Preview a freee application action",
-    description: "Read and preview one available approval or return action, returning a binding fingerprint. No application is changed.",
+    description: "Read and preview one available approval or return action, including any structured 勤務時間修正 before/after comparison, and return a binding fingerprint. No application is changed.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,

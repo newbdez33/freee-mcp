@@ -189,7 +189,7 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_monthly_approval_review` | Read-only | Review one monthly application with the applicant's summary, daily attendance, alerts, and automatic checks |
 | `freee_monthly_approval_prepare_action` | Read-only preview | Bind a complete monthly review and approval or return action into a fingerprint |
 | `freee_monthly_approval_commit_action` | Write | Revalidate the complete monthly review and approve or return one application |
-| `freee_approval_detail` | Read-only | Read the full details of one application |
+| `freee_approval_detail` | Read-only | Read one application's full details, including structured before/after values for supported work-time corrections |
 | `freee_approval_prepare_action` | Read-only preview | Generate an approval or return preview and fingerprint |
 | `freee_approval_commit_action` | Write | Revalidate the fingerprint and approve or return one application |
 
@@ -294,7 +294,7 @@ Creation, approved-application cancellation, and pending withdrawal use separate
 
 ## Employee application handling
 
-`approvals list` explicitly selects freee's manager-side `承認` tab and defaults to its pending `未承認` queue; it never reads the default employee-side `申請` tab as an approval queue. Each result includes the applicant. `--status returned|approved|all` reads other manager-side states, while `--page N` selects one page. Results report `page`, `pageCount`, `totalCount`, and the current page's `applicationCount`, so agents can continue without emitting an unbounded employee history. The browser waits for the exact freee response and matching rendered row count before parsing, preventing one filter's stale rows from being returned for another. `approvals detail --id` searches the complete paginated manager workflow and returns the application fields, approval route, department, comments, and freee automatic-check results. Both commands are read-only.
+`approvals list` explicitly selects freee's manager-side `承認` tab and defaults to its pending `未承認` queue; it never reads the default employee-side `申請` tab as an approval queue. Each result includes the applicant. `--status returned|approved|all` reads other manager-side states, while `--page N` selects one page. Results report `page`, `pageCount`, `totalCount`, and the current page's `applicationCount`, so agents can continue without emitting an unbounded employee history. The browser waits for the exact freee response and matching rendered row count before parsing, preventing one filter's stale rows from being returned for another. `approvals detail --id` searches the complete paginated manager workflow and returns the application fields, approval route, department, comments, and freee automatic-check results. For supported `勤務時間修正` applications, `workTimeChange` provides structured `before` and `after` values for clock-in, clock-out, break start, and break end; `null` means freee displayed `未入力`. The same comparison is included in approval previews and their safety fingerprints. Both commands are read-only.
 
 A single application write has two separate steps:
 

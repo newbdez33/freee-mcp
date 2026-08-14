@@ -884,6 +884,7 @@ test("Playwright approval detail fingerprints only a settled async snapshot", as
 
   assert.deepEqual(result.tables, complete.tables);
   assert.deepEqual(result.detailLines, complete.detailLines);
+  assert.equal(result.workTimeChange, null);
   assert.equal(snapshotReads, 3);
   assert.equal(waits, 2);
 });

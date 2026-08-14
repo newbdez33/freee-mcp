@@ -189,7 +189,7 @@ Codex 配置使用 `default_tools_approval_mode = "writes"`：只读工具可直
 | `freee_monthly_approval_review` | 只读 | 审阅单条月次申请及申请人的汇总、逐日考勤、警告和自动检查 |
 | `freee_monthly_approval_prepare_action` | 只读预览 | 将完整月次审阅和批准/差戻し操作绑定为指纹 |
 | `freee_monthly_approval_commit_action` | 写入 | 重新校验完整审阅并批准或差戻し单条月次申请 |
-| `freee_approval_detail` | 只读 | 读取单条申请的完整详情 |
+| `freee_approval_detail` | 只读 | 读取单条申请的完整详情，包括受支持勤務时间修正的修改前/后结构化对照 |
 | `freee_approval_prepare_action` | 只读预览 | 生成批准或差戻し预览和指纹 |
 | `freee_approval_commit_action` | 写入 | 重新校验指纹并批准或差戻し单条申请 |
 
@@ -294,7 +294,7 @@ Playwright 后端支持 System Keychain 凭据、持久登录、本人打卡状�
 
 ## 员工申请处理
 
-`approvals list` 明确选择管理员侧 `承認` 标签，默认读取 `未承認` 队列，绝不会把默认员工侧 `申請` 当作审批队列。每条结果包含申请人。`--status returned|approved|all` 读取其他管理员状态，`--page N` 选择单页。结果返回 `page`、`pageCount`、`totalCount` 和当前页 `applicationCount`，Agent 无需一次输出无限历史。浏览器等待准确 freee 响应及匹配的渲染行数，避免把旧筛选器 DOM 返回给新筛选器。`approvals detail --id` 搜索完整分页管理员流程，并返回申请字段、审批路径、部门、评论和 freee 自动检查结果。这两个命令均为只读。
+`approvals list` 明确选择管理员侧 `承認` 标签，默认读取 `未承認` 队列，绝不会把默认员工侧 `申請` 当作审批队列。每条结果包含申请人。`--status returned|approved|all` 读取其他管理员状态，`--page N` 选择单页。结果返回 `page`、`pageCount`、`totalCount` 和当前页 `applicationCount`，Agent 无需一次输出无限历史。浏览器等待准确 freee 响应及匹配的渲染行数，避免把旧筛选器 DOM 返回给新筛选器。`approvals detail --id` 搜索完整分页管理员流程，并返回申请字段、审批路径、部门、评论和 freee 自动检查结果。对于受支持的 `勤務時間修正`，`workTimeChange` 会结构化返回上班、下班、休息开始和休息结束的 `before`/`after` 值；`null` 表示 freee 显示 `未入力`。承认预览及其安全指纹也会包含这组对照。这两个命令均为只读。
 
 单条申请写操作分为两个阶段：
 

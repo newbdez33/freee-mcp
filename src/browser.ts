@@ -10,6 +10,7 @@ import {
   getApprovalRowOffset,
   parseApprovalPageInfo,
   parseApprovalListSnapshot,
+  parseApprovalWorkTimeChange,
   type BrowserApprovalAction,
   type BrowserApprovalDetail,
   type BrowserApprovalListStatus,
@@ -2659,6 +2660,7 @@ export class FreeeBrowserClient {
     return {
       applicationId,
       ...await this.readApprovalDetailSnapshot(),
+      workTimeChange: null,
       ...await this.readCurrentPersonalApplicationActions(),
     };
   }
@@ -3150,7 +3152,12 @@ export class FreeeBrowserClient {
         availableActions.push(action);
       }
     }
-    return { application: summary, ...snapshot, availableActions };
+    return {
+      application: summary,
+      ...snapshot,
+      workTimeChange: parseApprovalWorkTimeChange(summary, snapshot.tables),
+      availableActions,
+    };
   }
 
   private async getApprovalPageDiagnostics(): Promise<{

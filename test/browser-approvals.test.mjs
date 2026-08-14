@@ -5,6 +5,7 @@ import {
   createApprovalFingerprint,
   parseApprovalPageInfo,
   parseApprovalListSnapshot,
+  parseApprovalWorkTimeChange,
 } from "../dist/browser-approvals.js";
 
 const headers = [
@@ -126,6 +127,64 @@ test("approval response metadata binds DOM synchronization to one exact page", (
   );
 });
 
+test("approval detail parser exposes an unentered-to-entered work-time comparison", () => {
+  const result = parseApprovalWorkTimeChange(
+    { type: "勤務時間修正" },
+    [{
+      headers: ["項目名", "内容"],
+      rows: [[
+        "勤務時間",
+        "出退勤時間 未入力09:45 〜 19:00（9時間15分） 休憩時間 未入力12:00 〜 13:00（1時間0分）",
+      ]],
+    }],
+  );
+
+  assert.deepEqual(result, {
+    before: {
+      clockIn: null,
+      clockOut: null,
+      breakStart: null,
+      breakEnd: null,
+    },
+    after: {
+      clockIn: "09:45",
+      clockOut: "19:00",
+      breakStart: "12:00",
+      breakEnd: "13:00",
+    },
+  });
+});
+
+test("approval detail parser exposes changed and removed work-time values", () => {
+  assert.deepEqual(parseApprovalWorkTimeChange(
+    { type: "勤務時間修正" },
+    [{
+      headers: ["項目名", "内容"],
+      rows: [[
+        "勤務時間",
+        "出退勤時間 09:00 ～ 18:00（9時間0分）09:30 ～ 18:30（9時間0分） 休憩時間 12:00 ～ 13:00（1時間0分）未入力",
+      ]],
+    }],
+  ), {
+    before: {
+      clockIn: "09:00",
+      clockOut: "18:00",
+      breakStart: "12:00",
+      breakEnd: "13:00",
+    },
+    after: {
+      clockIn: "09:30",
+      clockOut: "18:30",
+      breakStart: null,
+      breakEnd: null,
+    },
+  });
+  assert.equal(parseApprovalWorkTimeChange(
+    { type: "休暇" },
+    [{ headers: ["項目名", "内容"], rows: [["勤務時間", "未入力"]] }],
+  ), null);
+});
+
 test("approval list parser stops on a changed schema or invalid application No.", () => {
   assert.throws(
     () => parseApprovalListSnapshot({ headers: ["No."], rows: [] }),
@@ -157,6 +216,7 @@ test("approval preview fingerprint binds the exact action and detail content", (
     fields: [],
     tables: [],
     detailLines: ["申請者 Aさんの休暇申請", "残数は4日です。"],
+    workTimeChange: null,
     availableActions: ["approve", "return"],
   };
 
@@ -167,5 +227,15 @@ test("approval preview fingerprint binds the exact action and detail content", (
   assert.notEqual(
     approve,
     createApprovalFingerprint({ ...detail, detailLines: [...detail.detailLines, "new comment"] }, "approve"),
+  );
+  assert.notEqual(
+    approve,
+    createApprovalFingerprint({
+      ...detail,
+      workTimeChange: {
+        before: { clockIn: null, clockOut: null, breakStart: null, breakEnd: null },
+        after: { clockIn: "09:45", clockOut: "19:00", breakStart: "12:00", breakEnd: "13:00" },
+      },
+    }, "approve"),
   );
 });

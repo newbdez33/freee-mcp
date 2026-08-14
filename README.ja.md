@@ -189,7 +189,7 @@ workflow は全検証を再実行し、現在の `main` commit に annotation �
 | `freee_monthly_approval_review` | 読み取り専用 | 月次申請 1 件を申請者の集計、日次勤怠、警告、自動チェックとともにレビュー |
 | `freee_monthly_approval_prepare_action` | 読み取り専用 preview | 完全な月次レビューと承認/差戻し操作を fingerprint に束縛 |
 | `freee_monthly_approval_commit_action` | 書き込み | 完全レビューを再検証し月次申請 1 件を承認または差し戻し |
-| `freee_approval_detail` | 読み取り専用 | 申請 1 件の完全な詳細を取得 |
+| `freee_approval_detail` | 読み取り専用 | 申請 1 件の完全な詳細と、対応する勤務時間修正の変更前/変更後を構造化して取得 |
 | `freee_approval_prepare_action` | 読み取り専用 preview | 承認または差戻し preview と fingerprint を生成 |
 | `freee_approval_commit_action` | 書き込み | fingerprint を再検証し申請 1 件を承認または差し戻し |
 
@@ -294,7 +294,7 @@ Playwright バックエンドは System Keychain 認証情報、永続ログイ�
 
 ## 従業員申請の処理
 
-`approvals list` は管理者側 `承認` tab を明示選択し、既定で `未承認` queue を読みます。既定の従業員側 `申請` を承認 queue として扱いません。各結果には申請者が含まれます。`--status returned|approved|all` は他の管理者状態を読み、`--page N` は 1 ページを選択します。結果は `page`、`pageCount`、`totalCount`、現在ページの `applicationCount` を返し、Agent が無制限の履歴を一度に出力する必要をなくします。ブラウザーは正確な freee response と一致する描画行数を待ち、別 filter の古い DOM を返しません。`approvals detail --id` はページ分割された管理者 workflow 全体から検索し、申請項目、承認経路、部門、コメント、freee 自動チェック結果を返します。どちらも読み取り専用です。
+`approvals list` は管理者側 `承認` tab を明示選択し、既定で `未承認` queue を読みます。既定の従業員側 `申請` を承認 queue として扱いません。各結果には申請者が含まれます。`--status returned|approved|all` は他の管理者状態を読み、`--page N` は 1 ページを選択します。結果は `page`、`pageCount`、`totalCount`、現在ページの `applicationCount` を返し、Agent が無制限の履歴を一度に出力する必要をなくします。ブラウザーは正確な freee response と一致する描画行数を待ち、別 filter の古い DOM を返しません。`approvals detail --id` はページ分割された管理者 workflow 全体から検索し、申請項目、承認経路、部門、コメント、freee 自動チェック結果を返します。対応する `勤務時間修正` では、`workTimeChange` が出勤、退勤、休憩開始、休憩終了の `before`/`after` 値を構造化して返し、`null` は freee の `未入力` を表します。同じ比較は承認 preview と安全 fingerprint にも含まれます。どちらも読み取り専用です。
 
 単一申請の書き込みは 2 段階です。
 

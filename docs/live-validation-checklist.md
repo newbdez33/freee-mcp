@@ -2,7 +2,7 @@
 
 This checklist tracks capabilities that are implemented and covered by automated tests, but have not yet completed a recorded end-to-end validation against real freee state or a real supported Agent installation.
 
-Baseline date: 2026-08-13.
+Baseline date: 2026-08-14.
 
 The ordered, reversible workflow for the Playwright application and attendance-management cases that the maintainer will execute with a personal account is documented in [`personal-account-live-test-plan.md`](personal-account-live-test-plan.md). Public API validation and real clock commits remain tracked here but are explicitly outside that plan.
 
@@ -23,6 +23,7 @@ The following areas already have recorded real-environment evidence and do not n
 Partial validation runs are recorded separately:
 
 - [2026-08-13 Playwright personal-account validation](live-validation-run-2026-08-13.md): automated baseline, Playwright read baseline, missing-confirmation rejection for monthly submission and personal creation, and read-only form/date variants. No freee write was performed.
+- [2026-08-14 Playwright monthly read validation](live-validation-run-2026-08-14-monthly.md): personal cross-month navigation passed, and an approved manager monthly application completed the full read-only review after live UI compatibility fixes. No freee write was performed; a naturally pending monthly application was unavailable.
 
 ## Priority 0: real business-write paths
 
@@ -53,8 +54,8 @@ These validations are read-only or stop before a business write.
 - [ ] **LV-R08 — Public API team-status success path.** Validate only with a separate account that actually has the required API role, such as `company_admin`. The current account's real permission denial is already confirmed and must not be bypassed.
 - [ ] **LV-R09 — Multiple-company API selection.** With an account that exposes multiple employee identities, verify the unambiguous company path and the `COMPANY_REQUIRED` stop case without creating a punch.
 - [x] **LV-R10 — Approved personal cancellation form.** From an exact approved employee-side detail, verify `cancel` availability, the official `取消申請` route, original No. binding, optional reason field, approval route, and read-only fingerprint generation without submitting. Validated on 2026-08-14 with original application No. `10034`, Playwright backend, and fingerprint prefix `1a6f921f8988`.
-- [ ] **LV-R11 — Manager monthly attendance review and period navigation.** With a naturally pending `月次勤怠締め` application outside the initially selected attendance-monitor month, verify automatic navigation to the application's work month, monthly-only filtering, exact applicant mapping, one daily attendance table, all visible alerts/checks, and stable read-only fingerprint generation. Stop before commit.
-- [ ] **LV-R12 — Personal monthly period navigation.** Call monthly status for a work month outside the initially selected attendance-calendar month. Verify that the returned work month is exact, that freee's payment-month/work-month offset is preserved, and that no application is submitted or withdrawn.
+- [ ] **LV-R11 — Manager monthly attendance review and period navigation.** With a naturally pending `月次勤怠締め` application outside the initially selected attendance-monitor month, verify automatic navigation to the application's work month, monthly-only filtering, exact applicant mapping, one daily attendance table, all visible alerts/checks, and stable read-only fingerprint generation. Stop before commit. Partial validation on 2026-08-14 used approved application No. `9869` for `2026-08`: monthly-only filtering, exact applicant mapping, exact period verification, 31 daily rows, alerts, warnings, and automatic checks all passed. The manager monitor was already on `2026-08` and no naturally pending monthly application existed, so cross-month manager navigation, action availability, and stable prepare fingerprint generation remain pending.
+- [x] **LV-R12 — Personal monthly period navigation.** Call monthly status for a work month outside the initially selected attendance-calendar month. Verify that the returned work month is exact, that freee's payment-month/work-month offset is preserved, and that no application is submitted or withdrawn. Validated on 2026-08-14 with Playwright `0.3.3`: navigation from work/payment `2026-08`/`2026-09` to requested work/payment `2026-07`/`2026-08` returned the exact requested work month without a write.
 
 ## Priority 2: authentication and distribution reliability
 

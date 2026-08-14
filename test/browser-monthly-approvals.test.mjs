@@ -83,6 +83,12 @@ test("attendance period navigation preserves the payment/work-month offset", () 
     "2026年9月25日払い （2026年8月1日 〜 2026年8月31日 勤務分）",
   );
   assert.deepEqual(current, { paymentPeriod: "2026-09", workPeriod: "2026-08" });
+  assert.deepEqual(
+    parseAttendancePeriodContext(
+      "2026年9月25日払い 2026年8月1日〜2026年8月31日勤務分",
+    ),
+    { paymentPeriod: "2026-09", workPeriod: "2026-08" },
+  );
   assert.equal(targetPaymentPeriodForWorkPeriod(current, "2026-07"), "2026-08");
   assert.equal(targetPaymentPeriodForWorkPeriod(current, "2025-12"), "2026-01");
   assert.throws(
@@ -130,6 +136,21 @@ test("monthly attendance review parses one exact daily table and alerts", () => 
   assert.deepEqual(attendance.days[1].alerts, ["遅刻申請が必要です"]);
   const checks = collectMonthlyAutomaticChecks(monthlyDetail(), attendance);
   assert.ok(checks.some((check) => check.includes("2026-08-02")));
+});
+
+test("monthly attendance review preserves blank edge columns from the live table layout", () => {
+  const attendance = parseMonthlyAttendanceTableSnapshot({
+    selectedPeriod: "2026年8月",
+    warnings: [],
+    tables: [{
+      headers: ["", "日付", "申請", "出勤", "退勤", "休憩", ""],
+      rows: [["", "8/01", "", "09:00", "18:00", "01:00", ""]],
+    }],
+  }, "2026-08");
+
+  assert.equal(attendance.dayCount, 1);
+  assert.equal(attendance.days[0].date, "2026-08-01");
+  assert.equal(attendance.days[0].fields.length, 7);
 });
 
 test("monthly attendance review stops on another month or ambiguous daily tables", () => {

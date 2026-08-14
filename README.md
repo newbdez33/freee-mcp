@@ -107,7 +107,7 @@ This table describes the current `main` branch. “Covered” means the behavior
 | Current user and company identity | API | Complete; Playwright identity is not implemented | Covered | API path validated |
 | Current punch status and available actions | API + Playwright | Complete | Covered | Both read paths validated |
 | Clock in, break start/end, and clock out | API + Playwright | Complete for current-time punches | Covered, including confirmation and stale-state rejection | Real commits pending (`LV-W01`, `LV-W02`) |
-| Personal monthly status, warnings, and work-month navigation | Playwright | Complete | Covered | Current-month status/warnings validated; state variants and cross-month navigation pending (`LV-R04`, `LV-R12`) |
+| Personal monthly status, warnings, and work-month navigation | Playwright | Complete | Covered | Current-month status/warnings and cross-month navigation validated; remaining state variants pending (`LV-R04`) |
 | Standalone personal monthly totals and detailed absence/late/early-leave anomalies | API + Playwright | Not implemented; calendar warnings and manager summaries expose only part of this information | — | — |
 | Submit a personal monthly closing application | Playwright | Complete with prepare/commit fingerprint | Covered | Pending (`LV-W03`) |
 | Withdraw a pending personal monthly closing application | Playwright | Complete with prepare/commit fingerprint | Covered | Pending (`LV-W04`) |
@@ -125,7 +125,7 @@ This table describes the current `main` branch. “Covered” means the behavior
 | List, filter, paginate, and inspect manager applications | Playwright | Complete | Covered | Filters, pagination, exact detail, and processed history validated |
 | Approve one general employee application | Playwright | Complete with prepare/commit fingerprint | Covered | Validated, including post-write detail verification |
 | Return one general employee application | Playwright | Complete with prepare/commit fingerprint | Covered | Validated (`LV-W08`) |
-| List and fully review monthly closing applications | Playwright | Complete; includes member summary, daily rows, alerts, checks, and verified period navigation | Covered | Pending (`LV-R11`) |
+| List and fully review monthly closing applications | Playwright | Complete; includes member summary, daily rows, alerts, checks, and verified period navigation | Covered | Approved historical review validated; naturally pending cross-month and prepare-fingerprint validation remains (`LV-R11`) |
 | Approve or return one monthly closing application | Playwright | Complete with dedicated full-review fingerprint | Covered | Pending (`LV-W10`) |
 | Delete returned or draft personal applications | Playwright | Not implemented | — | — |
 | Batch approval/change and audit logging | Playwright | Not implemented | — | — |

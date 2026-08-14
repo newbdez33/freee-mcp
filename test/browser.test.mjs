@@ -534,6 +534,98 @@ test("Playwright monthly approval review binds detail, member summary, daily att
   assert.deepEqual(selectedPeriods, ["2026-08", "2026-08"]);
 });
 
+test("Playwright monthly approval review follows an employee attendance link into a new tab", async () => {
+  const state = {
+    url: "https://p.secure.freee.co.jp/attendance_monitor",
+    opened: false,
+    pageWaiter: null,
+  };
+  const attendancePage = {
+    url() { return "https://p.secure.freee.co.jp/attendances"; },
+    setDefaultTimeout() {},
+    setDefaultNavigationTimeout() {},
+    async waitForLoadState() {},
+  };
+  const link = {
+    async getAttribute(name) {
+      if (name === "href") return "/attendances";
+      if (name === "target") return "_blank";
+      return null;
+    },
+    async isVisible() { return true; },
+    async click() {
+      state.opened = true;
+      state.pageWaiter?.(attendancePage);
+    },
+  };
+  const row = {
+    async isVisible() { return true; },
+    locator(selector) {
+      if (selector === "th, td") {
+        return { async allInnerTexts() { return ["Member A", "Engineering"]; } };
+      }
+      if (selector === "a[href]") {
+        return { async count() { return 1; }, nth() { return link; } };
+      }
+      throw new Error(`unexpected row selector: ${selector}`);
+    },
+  };
+  const monitorPage = {
+    url() { return state.url; },
+    locator(selector) {
+      assert.equal(selector, "table tbody tr");
+      return { async count() { return 1; }, nth() { return row; } };
+    },
+  };
+  const context = {
+    waitForEvent(event) {
+      assert.equal(event, "page");
+      return new Promise((resolve) => { state.pageWaiter = resolve; });
+    },
+  };
+  const config = {
+    headless: true,
+    channel: "chrome",
+    profileDirectory: "/tmp/freee-agent-browser-test",
+    credentialService: "freee-agent-web-test",
+    navigationTimeoutMs: 1_000,
+    interactionTimeoutMs: 1_000,
+  };
+  const client = new FreeeBrowserClient(context, monitorPage, {}, config);
+  client.settleAttendancePage = async () => {};
+
+  await client.openMonthlyApplicantAttendance({
+    application: { id: "101" },
+  }, {
+    name: "Member A",
+    department: "Engineering",
+  });
+
+  assert.equal(state.opened, true);
+  assert.equal(client.page, attendancePage);
+});
+
+test("Playwright monthly approval review selects the current table-view control", async () => {
+  const { client } = createFakeBrowser([]);
+  let clicked = false;
+  client.page.locator = (selector) => {
+    assert.match(selector, /\[data-testid="テーブル"\]/);
+    return {
+      async count() { return 1; },
+      nth() {
+        return {
+          async isVisible() { return true; },
+          async click() { clicked = true; },
+        };
+      },
+    };
+  };
+
+  await client.selectAttendanceTableView();
+
+  assert.equal(clicked, true);
+});
+
 test("Playwright attendance period navigation selects the derived payment month and verifies the work month", async () => {
   const { client } = createFakeBrowser([]);
   const contexts = [

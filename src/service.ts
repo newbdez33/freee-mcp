@@ -93,6 +93,15 @@ export interface FreeeOperations {
     fingerprint: string,
     confirm: boolean,
   ): Promise<Record<string, unknown>>;
+  getMonthlyApprovals(status?: BrowserApprovalListStatus, page?: number): Promise<Record<string, unknown>>;
+  getMonthlyApprovalReview(id: string): Promise<Record<string, unknown>>;
+  prepareMonthlyApprovalAction(id: string, action: BrowserApprovalAction): Promise<Record<string, unknown>>;
+  commitMonthlyApprovalAction(
+    id: string,
+    action: BrowserApprovalAction,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<Record<string, unknown>>;
 }
 
 export class FreeeService implements FreeeOperations {
@@ -497,6 +506,60 @@ export class FreeeService implements FreeeOperations {
       backend: this.backend,
       ...asRecord(await this.withBrowser(
         (client) => client.commitApprovalAction(id, action, fingerprint, confirm),
+      )),
+    };
+  }
+
+  async getMonthlyApprovals(
+    status: BrowserApprovalListStatus = "pending",
+    page = 1,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Monthly approval workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser((client) => client.getMonthlyApprovals(status, page))),
+    };
+  }
+
+  async getMonthlyApprovalReview(id: string): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Monthly approval workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser((client) => client.getMonthlyApprovalReview(id))),
+    };
+  }
+
+  async prepareMonthlyApprovalAction(
+    id: string,
+    action: BrowserApprovalAction,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Monthly approval workflow");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser(
+        (client) => client.prepareMonthlyApprovalAction(id, action),
+      )),
+    };
+  }
+
+  async commitMonthlyApprovalAction(
+    id: string,
+    action: BrowserApprovalAction,
+    fingerprint: string,
+    confirm: boolean,
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Monthly approval workflow");
+    if (!confirm) {
+      throw new CliError(
+        "CONFIRMATION_REQUIRED",
+        "This tool changes a real monthly attendance application. Review it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        { details: { id, action }, exitCode: 2 },
+      );
+    }
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser(
+        (client) => client.commitMonthlyApprovalAction(id, action, fingerprint, confirm),
       )),
     };
   }

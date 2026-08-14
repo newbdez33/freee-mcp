@@ -452,6 +452,255 @@ test("Playwright approval list navigates to one explicit later page", async () =
   assert.equal(result.applicationCount, 1);
 });
 
+test("Playwright monthly approval list exposes only monthly closing applications", async () => {
+  const { client } = createFakeBrowser([]);
+  client.getApprovals = async () => ({
+    filter: "pending",
+    page: 1,
+    pageCount: 2,
+    totalCount: 3,
+    applicationCount: 3,
+    applications: [
+      { id: "100", type: "休暇" },
+      { id: "101", type: "月次勤怠締め" },
+      { id: "102", type: "勤務時間修正" },
+    ],
+  });
+
+  const result = await client.getMonthlyApprovals("pending", 1);
+
+  assert.equal(result.sourceTotalCount, 3);
+  assert.equal(result.applicationCount, 1);
+  assert.equal(result.applications[0].id, "101");
+});
+
+test("Playwright monthly approval review binds detail, member summary, daily attendance, and checks", async () => {
+  const { client } = createFakeBrowser([]);
+  const detail = {
+    application: {
+      id: "101",
+      status: "未承認",
+      applicant: "Member A",
+      type: "月次勤怠締め",
+      targetDate: "2026/08/01",
+      content: "2026年8月勤務分",
+      reason: null,
+      appliedAt: "2026/09/01",
+      currentApprover: "Manager B",
+      checkResult: "要確認",
+    },
+    fields: [{ label: "部門", value: "Engineering" }],
+    tables: [],
+    detailLines: ["チェック結果: 要確認"],
+    availableActions: ["approve", "return"],
+  };
+  const member = {
+    name: "Member A",
+    department: "Engineering",
+    issues: {},
+    work: {},
+    hasIssue: true,
+  };
+  client.getApprovalDetail = async () => detail;
+  client.openAttendanceMonitor = async () => {};
+  const selectedPeriods = [];
+  client.selectAttendanceWorkPeriod = async (period) => {
+    selectedPeriods.push(period);
+  };
+  client.readTeamStatus = async (options) => {
+    assert.deepEqual(options, { date: "2026-08-01" });
+    return { period: "2026年8月", memberCount: 1, issueMemberCount: 1, members: [member] };
+  };
+  client.openMonthlyApplicantAttendance = async (actualDetail, actualMember) => {
+    assert.equal(actualDetail.application.id, "101");
+    assert.equal(actualMember.name, "Member A");
+  };
+  client.selectAttendanceTableView = async () => {};
+  client.readMonthlyAttendanceTableSnapshot = async () => ({
+    selectedPeriod: "2026年8月",
+    warnings: ["申請または修正が必要な勤怠が1日あります。"],
+    tables: [{
+      headers: ["日付", "出勤", "退勤", "アラート"],
+      rows: [["8/01", "09:00", "18:00", "確認が必要です"]],
+    }],
+  });
+
+  const result = await client.getMonthlyApprovalReview("101");
+
+  assert.equal(result.period, "2026-08");
+  assert.equal(result.attendance.dayCount, 1);
+  assert.equal(result.attendance.alertDayCount, 1);
+  assert.ok(result.automaticChecks.some((check) => check.includes("確認が必要です")));
+  assert.deepEqual(selectedPeriods, ["2026-08", "2026-08"]);
+});
+
+test("Playwright attendance period navigation selects the derived payment month and verifies the work month", async () => {
+  const { client } = createFakeBrowser([]);
+  const contexts = [
+    { paymentPeriod: "2026-09", workPeriod: "2026-08" },
+    { paymentPeriod: "2026-08", workPeriod: "2026-07" },
+  ];
+  client.readAttendancePeriodContext = async () => contexts.shift() ?? {
+    paymentPeriod: "2026-08",
+    workPeriod: "2026-07",
+  };
+  let selectedPaymentPeriod = null;
+  client.selectAttendancePaymentPeriod = async (period) => {
+    selectedPaymentPeriod = period;
+  };
+  client.settleAttendancePage = async () => {};
+
+  await client.selectAttendanceWorkPeriod("2026-07");
+
+  assert.equal(selectedPaymentPeriod, "2026-08");
+});
+
+test("Playwright attendance period navigation leaves an already selected work month unchanged", async () => {
+  const { client } = createFakeBrowser([]);
+  client.readAttendancePeriodContext = async () => ({
+    paymentPeriod: "2026-09",
+    workPeriod: "2026-08",
+  });
+  client.selectAttendancePaymentPeriod = async () => {
+    throw new Error("an already selected month must not be clicked");
+  };
+
+  await client.selectAttendanceWorkPeriod("2026-08");
+});
+
+test("Playwright personal monthly status navigates to an explicitly requested work month", async () => {
+  const { client } = createFakeBrowser([]);
+  const selectedPeriods = [];
+  client.ensureAuthenticated = async () => {};
+  client.openAttendanceCalendar = async () => {};
+  client.selectAttendanceWorkPeriod = async (period) => {
+    selectedPeriods.push(period);
+  };
+  client.captureDiagnosticScreenshot = async () => {};
+  client.readMonthlyCalendarSnapshot = async () => ({
+    periodLabels: ["2026年8月25日払い （2026年7月1日 〜 2026年7月31日 勤務分）"],
+    statusLabels: ["未申請"],
+    warnings: [],
+    createActionCount: 1,
+  });
+
+  const status = await client.getMonthlyStatus("2026-07");
+
+  assert.deepEqual(selectedPeriods, ["2026-07"]);
+  assert.equal(status.period, "2026-07");
+  assert.equal(status.state, "unsubmitted");
+});
+
+test("Playwright attendance period navigation stops when freee does not show the target work month", async () => {
+  const { client } = createFakeBrowser([]);
+  client.readAttendancePeriodContext = async () => ({
+    paymentPeriod: "2026-09",
+    workPeriod: "2026-08",
+  });
+  client.selectAttendancePaymentPeriod = async () => {};
+
+  await assert.rejects(
+    client.selectAttendanceWorkPeriod("2026-07"),
+    (error) => error.code === "ATTENDANCE_PERIOD_NAVIGATION_FAILED",
+  );
+});
+
+test("Playwright monthly approval commit stops before page access without confirmation or with a stale review", async () => {
+  const { client, state } = createFakeBrowser([]);
+  let reviewReads = 0;
+  const review = {
+    application: {
+      application: {
+        id: "101",
+        status: "未承認",
+        applicant: "Member A",
+        type: "月次勤怠締め",
+        targetDate: "2026/08/01",
+      },
+      fields: [],
+      tables: [],
+      detailLines: [],
+      availableActions: ["approve", "return"],
+    },
+    period: "2026-08",
+    attendanceSummary: { name: "Member A" },
+    attendance: { period: "2026-08", selectedPeriod: "2026年8月", headers: [], dayCount: 0, alertDayCount: 0, warnings: [], days: [] },
+    automaticChecks: [],
+  };
+  client.getMonthlyApprovalReview = async () => {
+    reviewReads += 1;
+    return review;
+  };
+
+  await assert.rejects(
+    client.commitMonthlyApprovalAction("101", "approve", "a".repeat(64), false),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  assert.equal(reviewReads, 0);
+  await assert.rejects(
+    client.commitMonthlyApprovalAction("101", "approve", "a".repeat(64), true),
+    (error) => error.code === "MONTHLY_APPROVAL_PREVIEW_CHANGED",
+  );
+  assert.equal(reviewReads, 1);
+  assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright monthly approval commit reopens the unchanged application before one action", async () => {
+  const { client } = createFakeBrowser([]);
+  const detail = {
+    application: {
+      id: "101",
+      status: "未承認",
+      applicant: "Member A",
+      type: "月次勤怠締め",
+      targetDate: "2026/08/01",
+    },
+    fields: [],
+    tables: [],
+    detailLines: [],
+    availableActions: ["approve", "return"],
+  };
+  const review = {
+    application: detail,
+    period: "2026-08",
+    attendanceSummary: { name: "Member A" },
+    attendance: {
+      period: "2026-08",
+      selectedPeriod: "2026年8月",
+      headers: ["日付", "出勤", "退勤"],
+      dayCount: 1,
+      alertDayCount: 0,
+      warnings: [],
+      days: [{ date: "2026-08-01", fields: [], alerts: [] }],
+    },
+    automaticChecks: [],
+  };
+  client.getMonthlyApprovalReview = async () => review;
+  client.getApprovalDetail = async (id) => {
+    assert.equal(id, "101");
+    return detail;
+  };
+  let commits = 0;
+  client.commitOpenApprovalAction = async (id, action, before) => {
+    commits += 1;
+    assert.equal(id, "101");
+    assert.equal(action, "approve");
+    assert.equal(before, detail);
+    return { id, action, verified: true, result: { ...detail, application: { ...detail.application, status: "承認済" } } };
+  };
+
+  const prepared = await client.prepareMonthlyApprovalAction("101", "approve");
+  const result = await client.commitMonthlyApprovalAction(
+    "101",
+    "approve",
+    prepared.fingerprint,
+    true,
+  );
+
+  assert.equal(commits, 1);
+  assert.equal(result.result.application.status, "承認済");
+});
+
 test("Playwright approval detail waits for the route to render after a row click", async () => {
   const { client } = createFakeBrowser([]);
   let detailVisible = false;

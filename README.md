@@ -137,7 +137,7 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_clock_prepare_action` | Read-only preview | Generate a punch preview and fingerprint |
 | `freee_clock_commit_action` | Write | Revalidate the fingerprint and create one real punch |
 | `freee_team_status` | Read-only | Read a department or current web-management monthly summary |
-| `freee_monthly_status` | Read-only | Read the selected month's personal 月次勤怠締め status |
+| `freee_monthly_status` | Read-only | Read a requested or currently selected personal 月次勤怠締め month |
 | `freee_monthly_prepare_action` | Read-only preview | Generate a monthly submit or withdrawal preview and fingerprint |
 | `freee_monthly_commit_action` | Write | Revalidate the fingerprint and submit or withdraw one monthly application |
 | `freee_personal_application_options` | Read-only | Show enabled personal application types and date-specific leave types |
@@ -150,6 +150,10 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_personal_application_prepare_withdraw` | Read-only preview | Generate a withdrawal preview and fingerprint for one pending application |
 | `freee_personal_application_commit_withdraw` | Write | Revalidate and withdraw one pending personal application |
 | `freee_approvals_list` | Read-only | List pending, approved, returned, or all applications |
+| `freee_monthly_approvals_list` | Read-only | List only 月次勤怠締め applications from one manager approval page |
+| `freee_monthly_approval_review` | Read-only | Review one monthly application with the applicant's summary, daily attendance, alerts, and automatic checks |
+| `freee_monthly_approval_prepare_action` | Read-only preview | Bind a complete monthly review and approval or return action into a fingerprint |
+| `freee_monthly_approval_commit_action` | Write | Revalidate the complete monthly review and approve or return one application |
 | `freee_approval_detail` | Read-only | Read the full details of one application |
 | `freee_approval_prepare_action` | Read-only preview | Generate an approval or return preview and fingerprint |
 | `freee_approval_commit_action` | Write | Revalidate the fingerprint and approve or return one application |
@@ -181,6 +185,8 @@ npm run freee -- approvals list
 npm run freee -- approvals list --status all
 npm run freee -- approvals list --status approved --page 2
 npm run freee -- approvals detail --id APPLICATION_NO
+npm run freee -- monthly-approvals list --status pending|returned|approved|all --page 1
+npm run freee -- monthly-approvals review --id APPLICATION_NO
 npm run freee -- browser status
 npm run freee -- browser credentials-status
 
@@ -220,6 +226,13 @@ npm run freee -- requests commit-withdraw --id APPLICATION_NO \
 npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return
 npm run freee -- approvals commit-action --id APPLICATION_NO \
   --action approve|return --fingerprint PREVIEW_SHA256 --confirm
+
+# Monthly attendance approvals: review first, then commit only after exact approval
+npm run freee -- monthly-approvals prepare-action \
+  --id APPLICATION_NO --action approve|return
+npm run freee -- monthly-approvals commit-action \
+  --id APPLICATION_NO --action approve|return \
+  --fingerprint PREVIEW_SHA256 --confirm
 ```
 
 Commands emit JSON and identify the selected business backend. Before a real punch, the service rechecks the available action using the same backend. Before an application action, it rereads the complete detail and requires the SHA-256 fingerprint to match the read-only preview. An unavailable action, changed detail, ambiguous page, or missing confirmation stops before an API POST or browser click. If a commit returns no complete JSON envelope, treat its result as unknown and never retry the write; use the corresponding read-only status, list, or detail command to verify the exact target.
@@ -228,13 +241,13 @@ MCP and CLI writes follow the same safety model. Every real action must start wi
 
 The API implementation of `team status` is complete and tested, but the `attendance_manager` role used at GCU cannot read employee memberships through the Public API. The API backend returns the permission error and does not fall back to Playwright.
 
-The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, personal application list/detail/leave/work-time-correction/withdraw/approved-application cancellation, department monthly attendance summaries, and employee application list/detail/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, and monthly work totals from the attendance list, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
+The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, personal application list/detail/leave/work-time-correction/withdraw/approved-application cancellation, department monthly attendance summaries, general employee application handling, and dedicated monthly attendance review/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, monthly work totals, and one exact applicant's daily attendance table, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
 
 ## Monthly attendance applications
 
-`monthly status` reads the month currently selected in freee's attendance calendar and returns its normalized state, freee status label, matching application when present, and available actions. An optional `--period YYYY-MM` is a guard: it must match the selected month and does not silently navigate to another period.
+`monthly status` reads the requested work month, or the month currently selected in freee when `--period` is omitted. With `--period YYYY-MM`, the Playwright backend reads freee's current payment-month/work-month pair, preserves that offset, uses the official bounded year/month navigator, and verifies that both the expected payment month and requested work month are displayed before parsing any status. A missing or ambiguous navigator, an unexpected period label, or a failed post-navigation check stops safely. The result includes the normalized state, freee status label, matching application when present, available actions, and visible calendar warnings such as days that still require an application or correction. Agents must present non-empty warnings and stop before submission until the user resolves or explicitly reviews them in freee.
 
-Monthly writes use the same two-step safety model as other writes. `monthly prepare-action --action submit` opens the creation form, reads the target month, application route, approval steps, and checks, but does not click the final `申請` button. `--action withdraw` reads the exact pending application and verifies that `申請を取り下げる` is available. The commit command rereads the complete preview, requires the unchanged fingerprint and explicit current-message confirmation, performs one click, and verifies the resulting monthly state. An ambiguous or unknown result is never retried automatically.
+Monthly writes use the same two-step safety model as other writes. `monthly prepare-action --action submit` opens the creation form, reads the target month, application route, approval steps, form checks, and calendar warnings, but does not click the final `申請` button. Calendar warnings are bound into the fingerprint. `--action withdraw` reads the exact pending application and verifies that `申請を取り下げる` is available. The commit command rereads the complete preview, requires the unchanged fingerprint and explicit current-message confirmation, performs one click, and verifies the resulting monthly state. An ambiguous or unknown result is never retried automatically.
 
 ## Personal attendance applications
 
@@ -254,6 +267,14 @@ A single application write has two separate steps:
 2. The agent may call `approvals commit-action ... --confirm` with the same application number, action, and fingerprint only after the user reviews the applicant, type, target date, content, reason, and automatic checks and explicitly requests approval or return in the current message.
 
 Before committing, the CLI rereads the detail. A fingerprint mismatch, missing button, application processed by someone else, or new comment stops the operation and requires a new preview. After the click, the application is reread through the synchronized paginated workflow and must expose the exact expected `承認済` or `差戻し` state. When a self-application leaves the manager history after return, the exact same No. and immutable target fields may instead be verified in the employee history. An application missing from both workflows, or any mismatched target, is reported as unknown and must never be retried automatically. Batch approval is not supported, and development tests never perform real approvals or returns.
+
+## Monthly attendance approval review
+
+`monthly-approvals list` filters one synchronized manager approval page to `月次勤怠締め` applications. Use its `pageCount` to inspect later source pages; `sourceTotalCount` is the complete count before type filtering, while `applicationCount` is the monthly count on the returned page.
+
+`monthly-approvals review --id` first verifies the exact application type and work month. It then navigates the attendance monitor to that work month, maps the applicant to one unique visible member, opens the employee's official attendance page, and verifies the same work month again before reading the daily table. Navigation preserves freee's displayed payment-month/work-month offset and validates the resulting pair. An ambiguous navigator, a navigation mismatch, duplicate employee identity, missing attendance link, or changed table schema stops safely instead of returning a partial review. A successful review returns the monthly summary, one uniquely identified daily attendance table, per-day alerts, page warnings, application detail, and consolidated automatic checks.
+
+Use `monthly-approvals prepare-action --id NO --action approve|return` before a monthly manager write. Its fingerprint binds the full application, monthly summary, daily rows, alerts, checks, and requested action. Only a new current-message confirmation of that exact preview permits `monthly-approvals commit-action ... --confirm`. The commit reconstructs the review, reopens the exact application, clicks once, and applies the same post-write verification as the general approval workflow. Batch actions are not supported, and this specialized path remains pending real freee validation.
 
 ## Backend selection
 
@@ -347,7 +368,7 @@ When MCP first discovers that web credentials are missing, `freee_auth_status` o
 
 The persistent browser profile defaults to `~/.freee-agent/playwright-profile` and is restricted to the current user. The CLI rejects a profile configured inside the repository.
 
-For an explicitly supervised source-development diagnostic only, set `FREEE_BROWSER_DIAGNOSTIC_DIR` to a private temporary directory outside the repository. Personal-application preparation and submission then capture numbered full-page screenshots around the controlled form and submit steps. The directory and image files are restricted to the current user, are never enabled by default, and must never be committed or attached to a public issue without reviewing and redacting personal data.
+For an explicitly supervised source-development diagnostic only, set `FREEE_BROWSER_DIAGNOSTIC_DIR` to a private temporary directory outside the repository. Personal-application preparation and submission capture numbered full-page screenshots around the controlled form and submit steps, while monthly status reads capture the selected attendance calendar state. The directory and image files are restricted to the current user, are never enabled by default, and must never be committed or attached to a public issue without reviewing and redacting personal data.
 
 ## Agent Skill
 

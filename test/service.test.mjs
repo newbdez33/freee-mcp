@@ -75,6 +75,21 @@ test("shared service monthly commit requires confirmation before launching a bro
   assert.equal(launches, 0);
 });
 
+test("shared service monthly approval commit requires confirmation before launching a browser", async () => {
+  const service = new FreeeService("playwright");
+  let launches = 0;
+  service.withBrowser = async () => {
+    launches += 1;
+    return {};
+  };
+
+  await assert.rejects(
+    service.commitMonthlyApprovalAction("1234", "approve", "0".repeat(64), false),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  assert.equal(launches, 0);
+});
+
 test("shared service personal application commits require confirmation before launching a browser", async () => {
   const service = new FreeeService("playwright");
   let launches = 0;

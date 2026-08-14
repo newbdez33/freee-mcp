@@ -6,7 +6,7 @@ Baseline date: 2026-08-13.
 
 The ordered, reversible workflow for the Playwright application and attendance-management cases that the maintainer will execute with a personal account is documented in [`personal-account-live-test-plan.md`](personal-account-live-test-plan.md). Public API validation and real clock commits remain tracked here but are explicitly outside that plan.
 
-The checklist intentionally excludes features that are not implemented, including overtime creation, multiple work segments or breaks, employee daily detail, recursive child-department aggregation, deletes, batch actions, and audit logs.
+The checklist intentionally excludes features that are not implemented, including overtime creation, multiple work segments or breaks, general employee daily detail outside the monthly-approval review, recursive child-department aggregation, deletes, batch actions, and audit logs.
 
 ## Recorded live validation baseline
 
@@ -37,6 +37,7 @@ Every item below requires a dedicated test case, a reviewed prepare result, and 
 - [x] **LV-W07 — Personal application withdrawal.** While a dedicated test application is still pending, prepare and commit `申請を取り下げる`, then verify the same No. is `差戻し` and no longer exposes `withdraw`. Validated with application No. `10032` on 2026-08-13.
 - [x] **LV-W08 — Manager return action.** Create a dedicated pending test application, prepare `return`, commit once, and verify the same No. becomes `差戻し`. Validated on 2026-08-13 with full-day leave application No. `10035`; the exact employee-side detail and audit comment independently confirmed the returned state without retrying the write.
 - [ ] **LV-W09 — Approved personal application cancellation.** On an approved application that genuinely needs cancellation, prepare the exact `取消申請`, review the original No./status/type/date/content, cancellation reason, route, and fingerprint, then commit once and verify exactly one new cancellation application. Approve that new No. only through a separate manager preview and explicit confirmation, then verify the original leave is cancelled.
+- [ ] **LV-W10 — Manager monthly attendance approval/return.** For one legitimate `月次勤怠締め` application, complete the dedicated review, inspect the applicant's monthly summary, daily attendance, alerts, and automatic checks, prepare one approve or return action, commit once after explicit confirmation, and verify the exact final state. Do not create a synthetic employee submission solely for this test.
 
 ## Priority 1: real read and state variants
 
@@ -52,6 +53,8 @@ These validations are read-only or stop before a business write.
 - [ ] **LV-R08 — Public API team-status success path.** Validate only with a separate account that actually has the required API role, such as `company_admin`. The current account's real permission denial is already confirmed and must not be bypassed.
 - [ ] **LV-R09 — Multiple-company API selection.** With an account that exposes multiple employee identities, verify the unambiguous company path and the `COMPANY_REQUIRED` stop case without creating a punch.
 - [x] **LV-R10 — Approved personal cancellation form.** From an exact approved employee-side detail, verify `cancel` availability, the official `取消申請` route, original No. binding, optional reason field, approval route, and read-only fingerprint generation without submitting. Validated on 2026-08-14 with original application No. `10034`, Playwright backend, and fingerprint prefix `1a6f921f8988`.
+- [ ] **LV-R11 — Manager monthly attendance review and period navigation.** With a naturally pending `月次勤怠締め` application outside the initially selected attendance-monitor month, verify automatic navigation to the application's work month, monthly-only filtering, exact applicant mapping, one daily attendance table, all visible alerts/checks, and stable read-only fingerprint generation. Stop before commit.
+- [ ] **LV-R12 — Personal monthly period navigation.** Call monthly status for a work month outside the initially selected attendance-calendar month. Verify that the returned work month is exact, that freee's payment-month/work-month offset is preserved, and that no application is submitted or withdrawn.
 
 ## Priority 2: authentication and distribution reliability
 

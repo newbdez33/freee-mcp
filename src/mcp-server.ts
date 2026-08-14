@@ -7,7 +7,7 @@ import type { FreeeOperations } from "./service.js";
 import { version } from "./version.js";
 
 export const mcpServerInstructions = [
-  "Use read tools when they match the user's request. Never call a clock, approval, monthly, or personal-application commit tool unless the user's current message explicitly authorizes that exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. A general request to implement, inspect, continue, or handle work is not approval for a real write.",
+  "Use read tools when they match the user's request. For a 月次勤怠締め manager action, use the dedicated monthly approval review and prepare tools; never bypass them with the general approval commit. Never call a clock, approval, monthly, or personal-application commit tool unless the user's current message explicitly authorizes that exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. A general request to implement, inspect, continue, or handle work is not approval for a real write.",
   "The selected API or Playwright backend is exclusive for each server process; never fall back. Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, show the exact setupCommand returned in the error and instruct the user to run it directly in a local interactive terminal; never accept credentials in chat or MCP arguments. If a preview changes or a result is unknown, stop and read status/detail before considering another write. Do not retry a write automatically.",
 ].join(" ");
 
@@ -25,7 +25,7 @@ const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/)
 const monthlyActionSchema = z.enum(["submit", "withdraw"])
   .describe("submit creates a 月次勤怠締め application; withdraw uses 申請を取り下げる.");
 const periodSchema = z.string().regex(/^\d{4}-\d{2}$/).optional()
-  .describe("Optional work month in YYYY-MM. It must match the month selected in freee.");
+  .describe("Optional work month in YYYY-MM. Playwright selects and verifies that work month before reading.");
 const personalApplicationKindSchema = z.enum(["leave", "overtime", "work-time-correction"])
   .describe("Use the options tool first. Overtime is reported as unavailable until its company form is enabled and safely supported.");
 const personalApplicationDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -140,7 +140,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_monthly_status", {
     title: "freee monthly attendance status",
-    description: "Read the selected month's personal 月次勤怠締め application status and available actions without changing freee.",
+    description: "Read the requested or currently selected personal 月次勤怠締め month and its available actions without changing freee.",
     inputSchema: { period: periodSchema },
     annotations: readOnlyAnnotations,
   }, async ({ period }) => executeTool(() => service.getMonthlyStatus(period)));
@@ -322,6 +322,57 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
     },
     annotations: readOnlyAnnotations,
   }, async ({ status, page }) => executeTool(() => service.getApprovals(status, page)));
+
+  server.registerTool("freee_monthly_approvals_list", {
+    title: "freee monthly attendance approval list",
+    description: "Read only 月次勤怠締め applications visible in the current account's approval workflow. Results are filtered from one explicit approval-list page.",
+    inputSchema: {
+      status: z.enum(["pending", "returned", "approved", "all"]).default("pending"),
+      page: z.number().int().positive().default(1)
+        .describe("One freee approval-list page. Use pageCount from the result to continue."),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ status, page }) => executeTool(
+    () => service.getMonthlyApprovals(status, page),
+  ));
+
+  server.registerTool("freee_monthly_approval_review", {
+    title: "Review a freee monthly attendance application",
+    description: "Read one exact 月次勤怠締め application, its applicant's monthly attendance summary, daily attendance table, alerts, and automatic checks without changing freee.",
+    inputSchema: { id: approvalIdSchema },
+    annotations: readOnlyAnnotations,
+  }, async ({ id }) => executeTool(() => service.getMonthlyApprovalReview(id)));
+
+  server.registerTool("freee_monthly_approval_prepare_action", {
+    title: "Preview a freee monthly attendance approval action",
+    description: "Review one exact 月次勤怠締め application and bind its detail, monthly summary, daily attendance, alerts, automatic checks, and requested approval/return action into a fingerprint. No application is changed.",
+    inputSchema: {
+      id: approvalIdSchema,
+      action: approvalActionSchema,
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ id, action }) => executeTool(
+    () => service.prepareMonthlyApprovalAction(id, action),
+  ));
+
+  server.registerTool("freee_monthly_approval_commit_action", {
+    title: "Commit a freee monthly attendance approval action",
+    description: "Approve or return one real 月次勤怠締め application only after matching the complete monthly review and receiving explicit current-message approval. Never call directly or retry automatically.",
+    inputSchema: {
+      id: approvalIdSchema,
+      action: approvalActionSchema,
+      fingerprint: fingerprintSchema,
+      confirm: z.literal(true).describe("Must be true only after explicit current-message user approval."),
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  }, async ({ id, action, fingerprint, confirm }) => executeTool(
+    () => service.commitMonthlyApprovalAction(id, action, fingerprint, confirm),
+  ));
 
   server.registerTool("freee_approval_detail", {
     title: "freee application detail",

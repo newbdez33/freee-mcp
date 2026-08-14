@@ -1,5 +1,7 @@
 # freee MCP + CLI + Agent Skill
 
+[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
+
 This project gives Claude Code, Codex, OpenCode, Pi, and other local coding agents safe, testable access to freee HR attendance workflows. Business logic lives in one shared core service, exposed through a local STDIO MCP server, a CLI, and a shared Agent Skill. The core supports two mutually exclusive backends: the freee Public API or controlled Playwright browser automation.
 
 ## Install with your coding agent
@@ -153,7 +155,7 @@ Every pull request and push to `main` runs tests, validates the Claude plugin an
 
 Releases are explicit and run only from the repository's `main` branch:
 
-1. Update `package.json`, `package-lock.json`, `.claude-plugin/plugin.json`, and the portable `#v...` commands in this README to the same SemVer version.
+1. Update `package.json`, `package-lock.json`, `.claude-plugin/plugin.json`, and the portable `#v...` commands in all three READMEs to the same SemVer version.
 2. Merge that version change after CI passes.
 3. In GitHub Actions, run the `Release` workflow from `main` and enter the version without the `v` prefix.
 

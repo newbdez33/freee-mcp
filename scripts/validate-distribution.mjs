@@ -34,6 +34,20 @@ function frontmatterValue(frontmatter, key) {
   return match?.[1] ?? match?.[2] ?? match?.[3]?.trim();
 }
 
+function shellBlocks(markdown) {
+  return Array.from(markdown.matchAll(/```(?:bash|dotenv)\n([\s\S]*?)\n```/g), (match) =>
+    match[1].split("\n").filter((line) => !line.startsWith("#")).join("\n"));
+}
+
+function referencedToolNames(markdown) {
+  return [...new Set(Array.from(markdown.matchAll(/`(freee_[a-z_]+)`/g), (match) => match[1]))]
+    .sort();
+}
+
+function referencedValidationIds(markdown) {
+  return [...new Set(markdown.match(/LV-[A-Z]\d{2}/g) ?? [])].sort();
+}
+
 async function validateSkill() {
   const skillPath = "skills/freee/SKILL.md";
   const skill = await readText(skillPath);
@@ -76,12 +90,23 @@ async function validateSkill() {
 }
 
 const releaseVersion = readReleaseVersion(process.argv.slice(2));
-const [packageJson, packageLock, plugin, marketplace, readme, license] = await Promise.all([
+const [
+  packageJson,
+  packageLock,
+  plugin,
+  marketplace,
+  readme,
+  readmeZhCn,
+  readmeJa,
+  license,
+] = await Promise.all([
   readJson("package.json"),
   readJson("package-lock.json"),
   readJson(".claude-plugin/plugin.json"),
   readJson(".claude-plugin/marketplace.json"),
   readText("README.md"),
+  readText("README.zh-CN.md"),
+  readText("README.ja.md"),
   readText("LICENSE"),
 ]);
 
@@ -101,8 +126,37 @@ for (const [source, value] of [
 if (releaseVersion !== undefined && releaseVersion !== version) {
   fail(`requested release ${releaseVersion} does not match repository version ${version}.`);
 }
-if (!readme.includes(`#v${version}'`) && !readme.includes(`#v${version}\"`)) {
-  fail(`README.md must pin the portable install command to #v${version}.`);
+const readmes = [
+  ["README.md", readme],
+  ["README.zh-CN.md", readmeZhCn],
+  ["README.ja.md", readmeJa],
+];
+const languageLinks = [
+  "[English](README.md)",
+  "[简体中文](README.zh-CN.md)",
+  "[日本語](README.ja.md)",
+];
+const canonicalShellBlocks = JSON.stringify(shellBlocks(readme));
+const canonicalToolNames = JSON.stringify(referencedToolNames(readme));
+const canonicalValidationIds = JSON.stringify(referencedValidationIds(readme));
+for (const [path, contents] of readmes) {
+  if (!contents.includes(`#v${version}'`) && !contents.includes(`#v${version}\"`)) {
+    fail(`${path} must pin the portable install command to #v${version}.`);
+  }
+  for (const link of languageLinks) {
+    if (!contents.includes(link)) {
+      fail(`${path} must include the language switch link ${link}.`);
+    }
+  }
+  if (JSON.stringify(shellBlocks(contents)) !== canonicalShellBlocks) {
+    fail(`${path} shell command blocks must match README.md.`);
+  }
+  if (JSON.stringify(referencedToolNames(contents)) !== canonicalToolNames) {
+    fail(`${path} MCP tool references must match README.md.`);
+  }
+  if (JSON.stringify(referencedValidationIds(contents)) !== canonicalValidationIds) {
+    fail(`${path} live-validation references must match README.md.`);
+  }
 }
 
 if (packageJson.license !== "MIT" || plugin.license !== "MIT" || !license.startsWith("MIT License\n")) {
@@ -144,4 +198,4 @@ await Promise.all([
   validateSkill(),
 ]);
 
-process.stdout.write(`Distribution metadata, Claude plugin, and freee Skill are valid for ${version}.\n`);
+process.stdout.write(`Distribution metadata, localized READMEs, Claude plugin, and freee Skill are valid for ${version}.\n`);

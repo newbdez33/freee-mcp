@@ -51,9 +51,13 @@ export function isMonthlyApproval(application: BrowserApprovalSummary): boolean 
 
 export function parseAttendancePeriodContext(pageText: string): AttendancePeriodContext {
   const normalized = pageText.trim().replace(/\s+/g, " ");
-  const periodLabels = Array.from(normalized.matchAll(
+  const wrappedPeriodLabels = Array.from(normalized.matchAll(
     /(20\d{2})年(\d{1,2})月\d{1,2}日払い\s*[（(]\s*(20\d{2})年(\d{1,2})月\d{1,2}日\s*[〜～-]\s*20\d{2}年\d{1,2}月\d{1,2}日\s*勤務分\s*[）)]/g,
   ));
+  const plainPeriodLabels = Array.from(normalized.matchAll(
+    /(20\d{2})年(\d{1,2})月\d{1,2}日払い\s+(20\d{2})年(\d{1,2})月\d{1,2}日\s*[〜～-]\s*20\d{2}年\d{1,2}月\d{1,2}日\s*勤務分/g,
+  ));
+  const periodLabels = [...wrappedPeriodLabels, ...plainPeriodLabels];
   const contexts = Array.from(new Map(periodLabels.map((label) => {
     const context = {
       paymentPeriod: normalizePeriod(Number(label[1]), Number(label[2])),

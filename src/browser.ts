@@ -1400,7 +1400,27 @@ export class FreeeBrowserClient {
         },
       );
     }
-    await candidates[0].click();
+    const candidate = candidates[0];
+    const opensNewPage = await candidate.getAttribute("target") === "_blank";
+    const openedPage = opensNewPage
+      ? this.context.waitForEvent("page", {
+          timeout: this.config.navigationTimeoutMs,
+        }).then((page) => page, () => null)
+      : Promise.resolve(null);
+    await candidate.click();
+    const attendancePage = await openedPage;
+    if (opensNewPage && attendancePage === null) {
+      throw new CliError(
+        "BROWSER_NAVIGATION_FAILED",
+        "freee did not open the expected employee attendance tab.",
+        { details: { id: application.application.id }, exitCode: 2 },
+      );
+    }
+    if (attendancePage) {
+      attendancePage.setDefaultTimeout(this.config.navigationTimeoutMs);
+      attendancePage.setDefaultNavigationTimeout(this.config.navigationTimeoutMs);
+      this.page = attendancePage;
+    }
     await this.page.waitForLoadState("domcontentloaded", {
       timeout: this.config.navigationTimeoutMs,
     }).catch(() => undefined);
@@ -1416,7 +1436,7 @@ export class FreeeBrowserClient {
 
   private async selectAttendanceTableView(): Promise<void> {
     const controls = this.page.locator(
-      '[aria-label="テーブル表示"], [aria-label="テーブル"], [title="テーブル表示"], [title="テーブル"], button:has-text("テーブル表示")',
+      '[data-testid="テーブル"], [aria-label="テーブル表示"], [aria-label="テーブル"], [title="テーブル表示"], [title="テーブル"], button:has-text("テーブル表示")',
     );
     const visible: Locator[] = [];
     for (let index = 0; index < await controls.count(); index += 1) {
@@ -1447,32 +1467,51 @@ export class FreeeBrowserClient {
         { exitCode: 2 },
       );
     }
-    return this.page.evaluate(() => {
+    const { workPeriod } = await this.readAttendancePeriodContext();
+    const [workYear, workMonth] = workPeriod.split("-").map(Number);
+    const selectedPeriod = `${workYear}年${workMonth}月`;
+    const snapshot = await this.page.evaluate(() => {
       const normalize = (value: string | null | undefined) =>
         (value ?? "").trim().replace(/\s+/g, " ");
-      const bodyText = document.body?.innerText ?? "";
-      const selectedPeriod = bodyText.match(/[（(]\s*(20\d{2}年\d{1,2}月)\d{1,2}日[〜～-].{0,80}勤務分/)?.[1]
-        ?? bodyText.match(/(20\d{2}年\d{1,2}月)\d{1,2}日[〜～-].{0,80}勤務分/)?.[1]
-        ?? bodyText.match(/(20\d{2}年\d{1,2}月)\s*勤務分/)?.[1]
-        ?? null;
       const tables = Array.from(document.querySelectorAll("table"))
         .filter((table) => table.getClientRects().length > 0)
-        .map((table) => ({
-          headers: Array.from(table.querySelectorAll<HTMLElement>("thead th"))
-            .map((cell) => normalize(cell.innerText))
-            .filter((value) => value.length > 0),
-          rows: Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr"))
-            .filter((row) => row.getClientRects().length > 0)
-            .map((row) => Array.from(row.querySelectorAll<HTMLElement>("th, td"))
-              .map((cell) => normalize(cell.innerText))),
-        }));
+        .map((table) => {
+          const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr"))
+            .filter((row) => row.getClientRects().length > 0);
+          const theadHeaders = Array.from(table.querySelectorAll<HTMLElement>("thead th, thead td"))
+            .map((cell) => normalize(cell.innerText));
+          const bodyHeaderRows = rows.filter((row) => {
+            const cells = Array.from(row.querySelectorAll<HTMLElement>(":scope > th, :scope > td"));
+            const labels = cells.map((cell) => normalize(cell.innerText));
+            const headerCellCount = cells.filter((cell) => cell.tagName === "TH").length;
+            return cells.length > 1
+              && headerCellCount >= cells.length - 1
+              && labels.some((label) => /^(?:日付(?:\s*[（(]?曜日[）)]?)?|日)$/.test(label))
+              && labels.some((label) => /出勤|退勤|勤務|労働|休憩|アラート|申請/.test(label));
+          });
+          const bodyHeaderRow = bodyHeaderRows.length === 1 ? bodyHeaderRows[0] : undefined;
+          const headers = theadHeaders.length > 0
+            ? theadHeaders
+            : bodyHeaderRow
+              ? Array.from(bodyHeaderRow.querySelectorAll<HTMLElement>(":scope > th, :scope > td"))
+                  .map((cell) => normalize(cell.innerText))
+              : [];
+          return {
+            headers,
+            rows: rows
+              .filter((row) => row !== bodyHeaderRow)
+              .map((row) => Array.from(row.querySelectorAll<HTMLElement>(":scope > th, :scope > td"))
+                .map((cell) => normalize(cell.innerText))),
+          };
+        });
       const warnings = Array.from(document.querySelectorAll<HTMLElement>("body *"))
         .filter((element) => element.getClientRects().length > 0)
         .map((element) => normalize(element.innerText))
         .filter((value) => /申請または修正が必要な勤怠が\d+日あります。?/.test(value))
         .filter((value, index, values) => values.indexOf(value) === index);
-      return { selectedPeriod, tables, warnings };
+      return { tables, warnings };
     });
+    return { selectedPeriod, ...snapshot };
   }
 
   private async selectAttendanceWorkPeriod(targetWorkPeriod: string): Promise<void> {

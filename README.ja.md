@@ -51,7 +51,7 @@ claude plugin update freee@freee-tools --scope user
 Codex は Skill installer で `skills/freee` をインストールし、次のバージョン固定されたポータブル STDIO コマンドをユーザースコープに登録します。
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.3.3' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.0' freee-mcp
 ```
 
 冒頭のインストールプロンプトが Codex に両方の手順を実行させます。新しい Skill がすぐに検出されない場合は Codex を再起動し、`/mcp` で Server 接続を確認してください。
@@ -61,7 +61,7 @@ codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.3.3' f
 クライアント設定または MCP installer を使用し、次のコマンドをユーザーレベルの STDIO MCP として登録します。
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.3.3' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.0' freee-mcp
 ```
 
 このリポジトリの `skills/freee` をクライアントのグローバル Agent Skills 位置へインストールします。OpenCode は `~/.agents/skills/freee` を認識します。他の Agent Skills 対応クライアントではユーザーレベルの場所が異なる場合があります。冒頭のインストールプロンプトにより、プロジェクトファイルを作らずに実行中の Agent が適切な場所を選択できます。

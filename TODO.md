@@ -92,6 +92,7 @@
 - [ ] 发布为可安装的 npm CLI / Skill 包
 - [x] 增加 CI：类型检查、测试、插件和 Skill 校验、便携包冒烟测试与敏感信息扫描
 - [x] 增加显式 GitHub Release 工作流：校验版本、创建标签、生成 Release notes，并附加包与校验和
+- [ ] 增加每日定时 CI/CD UI 契约监控：使用隔离测试账号和受控 runner 读取 freee，只比较脱敏 DOM schema / selector 指纹；检测到 HTML 结构或关键 selector 变化时自动创建或更新 GitHub Issue，禁止上传原始 HTML、Cookie 或员工数据
 - [ ] 补充管理员操作权限矩阵与 API 覆盖清单
 
 ## 真实环境待验收

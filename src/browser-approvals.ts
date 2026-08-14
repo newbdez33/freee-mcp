@@ -38,7 +38,20 @@ export interface BrowserApprovalDetail {
   fields: Array<{ label: string; value: string }>;
   tables: Array<{ headers: string[]; rows: string[][] }>;
   detailLines: string[];
+  workTimeChange: BrowserApprovalWorkTimeChange | null;
   availableActions: BrowserApprovalAction[];
+}
+
+export interface BrowserApprovalWorkTimeValue {
+  clockIn: string | null;
+  clockOut: string | null;
+  breakStart: string | null;
+  breakEnd: string | null;
+}
+
+export interface BrowserApprovalWorkTimeChange {
+  before: BrowserApprovalWorkTimeValue;
+  after: BrowserApprovalWorkTimeValue;
 }
 
 export function parseApprovalListSnapshot(snapshot: ApprovalListSnapshot): {
@@ -157,13 +170,83 @@ export function parseApprovalPageInfo(value: unknown): BrowserApprovalPageInfo {
   };
 }
 
+export function parseApprovalWorkTimeChange(
+  application: Pick<BrowserApprovalSummary, "type">,
+  tables: BrowserApprovalDetail["tables"],
+): BrowserApprovalWorkTimeChange | null {
+  if (application.type !== "勤務時間修正") {
+    return null;
+  }
+  const workTimeRow = tables
+    .flatMap((table) => table.rows)
+    .find((row) => normalize(row[0]) === "勤務時間");
+  const content = workTimeRow?.slice(1).join(" ").trim();
+  if (!content) {
+    return null;
+  }
+
+  const clockSection = sectionBetween(content, "出退勤時間", "休憩時間");
+  const breakSection = sectionBetween(content, "休憩時間");
+  const clockChange = parseTimeRangeChange(clockSection);
+  const breakChange = parseTimeRangeChange(breakSection);
+  if (!clockChange || !breakChange) {
+    return null;
+  }
+
+  return {
+    before: {
+      clockIn: clockChange.before?.start ?? null,
+      clockOut: clockChange.before?.end ?? null,
+      breakStart: breakChange.before?.start ?? null,
+      breakEnd: breakChange.before?.end ?? null,
+    },
+    after: {
+      clockIn: clockChange.after?.start ?? null,
+      clockOut: clockChange.after?.end ?? null,
+      breakStart: breakChange.after?.start ?? null,
+      breakEnd: breakChange.after?.end ?? null,
+    },
+  };
+}
+
 export function createApprovalFingerprint(
   detail: BrowserApprovalDetail,
   action: BrowserApprovalAction,
 ): string {
   return createHash("sha256")
-    .update(JSON.stringify({ version: 1, action, detail }))
+    .update(JSON.stringify({ version: 2, action, detail }))
     .digest("hex");
+}
+
+function sectionBetween(value: string, startLabel: string, endLabel?: string): string | null {
+  const start = value.indexOf(startLabel);
+  if (start < 0) {
+    return null;
+  }
+  const contentStart = start + startLabel.length;
+  const end = endLabel ? value.indexOf(endLabel, contentStart) : value.length;
+  if (endLabel && end < 0) {
+    return null;
+  }
+  return value.slice(contentStart, end).trim();
+}
+
+function parseTimeRangeChange(value: string | null): {
+  before: { start: string; end: string } | null;
+  after: { start: string; end: string } | null;
+} | null {
+  if (!value) {
+    return null;
+  }
+  const tokens = Array.from(value.matchAll(
+    /未入力|([0-9]{1,2}:[0-9]{2})\s*[〜～]\s*([0-9]{1,2}:[0-9]{2})(?:\s*[（(][^）)]*[）)])?/g,
+  ));
+  if (tokens.length !== 2) {
+    return null;
+  }
+  const parseToken = (token: RegExpMatchArray): { start: string; end: string } | null =>
+    token[0] === "未入力" ? null : { start: token[1]!, end: token[2]! };
+  return { before: parseToken(tokens[0]!), after: parseToken(tokens[1]!) };
 }
 
 function normalize(value: string | undefined): string | null {

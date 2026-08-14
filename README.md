@@ -95,6 +95,39 @@ For Pi, the equivalent manual update is `pi update`. Portable MCP installations 
 - The Playwright backend stores the freee username and password in System Keychain and fills them only on the expected official freee login page.
 - The legacy `freee-checkin` project informed the login flow and selectors, but this project does not reuse its `.env` password, force clicks, environment-variable logging, or unconfirmed scheduled writes.
 
+## Business capability status
+
+This table describes the current `main` branch. “Covered” means the behavior and its safety stops have automated unit or protocol tests; it does not mean that a real freee write was performed. Real-environment evidence is tracked separately in the [live validation checklist](docs/live-validation-checklist.md), while planned implementation work remains in [TODO.md](TODO.md).
+
+| Business capability | Backend | Implementation | Automated tests | Real freee validation |
+| --- | --- | --- | --- | --- |
+| Backend selection and authentication status | API + Playwright | Complete; one backend is selected exclusively | Covered | API OAuth/System Keyring and Playwright System Keychain/headless login validated |
+| Current user and company identity | API | Complete; Playwright identity is not implemented | Covered | API path validated |
+| Current punch status and available actions | API + Playwright | Complete | Covered | Both read paths validated |
+| Clock in, break start/end, and clock out | API + Playwright | Complete for current-time punches | Covered, including confirmation and stale-state rejection | Real commits pending (`LV-W01`, `LV-W02`) |
+| Personal monthly status, warnings, and work-month navigation | Playwright | Complete | Covered | Current-month status/warnings validated; state variants and cross-month navigation pending (`LV-R04`, `LV-R12`) |
+| Standalone personal monthly totals and detailed absence/late/early-leave anomalies | API + Playwright | Not implemented; calendar warnings and manager summaries expose only part of this information | — | — |
+| Submit a personal monthly closing application | Playwright | Complete with prepare/commit fingerprint | Covered | Pending (`LV-W03`) |
+| Withdraw a pending personal monthly closing application | Playwright | Complete with prepare/commit fingerprint | Covered | Pending (`LV-W04`) |
+| Discover enabled personal application and leave types | Playwright | Complete | Covered | Full-day, timed half-day, special-leave, and correction form variants validated |
+| List, filter, paginate, and inspect personal applications | Playwright | Complete | Covered | Pending/returned/approved/all filters and exact details validated; page 2 pending (`LV-R03`) |
+| Create a leave application | Playwright | Complete, including explicit timed-leave ranges | Covered | Validated (`LV-W05`) |
+| Create a work-time correction | Playwright | Limited to one work segment and one optional complete break pair | Covered | Read-only form variants validated; real commit pending (`LV-W06`) |
+| Create an overtime application | Playwright | Not implemented; disabled or unverified forms stop safely | Safe-refusal path covered | Current validation account does not enable the form |
+| Withdraw a pending personal application | Playwright | Complete with prepare/commit fingerprint | Covered | Validated (`LV-W07`) |
+| Cancel an approved personal application | Playwright | Complete; creates and verifies a separate cancellation application | Covered | Validated through final approval (`LV-W09`) |
+| Department monthly attendance and issue summary | Playwright | Complete for the currently visible management scope | Covered | Current-month summary and date-mismatch guard validated |
+| Department daily punch status through Public API | API | Implemented but role-gated | Covered | Expected `attendance_manager` denial validated; success with a capable role pending (`LV-R08`) |
+| Date-specific employee punch detail | Playwright | Not implemented | — | — |
+| Recursive child-department aggregation | Playwright | Not implemented | — | — |
+| List, filter, paginate, and inspect manager applications | Playwright | Complete | Covered | Filters, pagination, exact detail, and processed history validated |
+| Approve one general employee application | Playwright | Complete with prepare/commit fingerprint | Covered | Validated, including post-write detail verification |
+| Return one general employee application | Playwright | Complete with prepare/commit fingerprint | Covered | Validated (`LV-W08`) |
+| List and fully review monthly closing applications | Playwright | Complete; includes member summary, daily rows, alerts, checks, and verified period navigation | Covered | Pending (`LV-R11`) |
+| Approve or return one monthly closing application | Playwright | Complete with dedicated full-review fingerprint | Covered | Pending (`LV-W10`) |
+| Delete returned or draft personal applications | Playwright | Not implemented | — | — |
+| Batch approval/change and audit logging | Playwright | Not implemented | — | — |
+
 ## Development quick start
 
 ```bash

@@ -12,11 +12,14 @@ async function readJson(path) {
 }
 
 test("Claude plugin bundles the MCP and Skill without a project working directory", async () => {
-  const [packageJson, plugin, marketplace, readme] = await Promise.all([
+  const [packageJson, plugin, marketplace, readme, skill, commands, codexConfig] = await Promise.all([
     readJson("package.json"),
     readJson(".claude-plugin/plugin.json"),
     readJson(".claude-plugin/marketplace.json"),
     readFile("README.md", "utf8"),
+    readFile("skills/freee/SKILL.md", "utf8"),
+    readFile("skills/freee/references/commands.md", "utf8"),
+    readFile(".codex/config.toml", "utf8"),
   ]);
 
   assert.equal(plugin.version, packageJson.version);
@@ -29,6 +32,22 @@ test("Claude plugin bundles the MCP and Skill without a project working director
   assert.equal(marketplace.plugins[0].name, "freee");
   assert.equal(packageJson.bin["freee-mcp"], "scripts/standalone-mcp.mjs");
   assert.match(readme, new RegExp(`#v${packageJson.version.replaceAll(".", "\\.")}`));
+  assert.match(skill, /Authorize general approval automation/);
+  assert.match(skill, /user does not need to copy, repeat, or personally compare a raw SHA-256 value/);
+  assert.match(skill, /Stop the whole run only/);
+  assert.match(skill, /general `approve` or `return` commits/);
+  assert.match(skill, /Do not require a fixed candidate snapshot/);
+  assert.match(skill, /repeated scans until no matching item remains/);
+  assert.match(skill, /semantic judgment to full detail/);
+  assert.match(skill, /`APPROVAL_PREVIEW_CHANGED` explicitly means no business action occurred/);
+  assert.match(skill, /LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION/);
+  assert.doesNotMatch(skill, /Do not delete, batch-approve, or batch-change anything/);
+  assert.match(commands, /There is no batch approval command/);
+  assert.match(commands, /general `approve` and `return` actions/);
+  assert.match(commands, /fixed candidate snapshot, full No\. enumeration, and precomputed fingerprints are not required/);
+  assert.match(commands, /independent matches may continue/);
+  assert.match(codexConfig, /default_tools_approval_mode = "writes"/);
+  assert.match(codexConfig, /\[mcp_servers\.freee\.tools\.freee_approval_commit_action\]\napproval_mode = "approve"/);
 });
 
 test("Claude plugin MCP starts from an unrelated working directory", async () => {

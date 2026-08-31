@@ -51,7 +51,7 @@ Plugin releases use semantic versions. Maintainers must bump `package.json` and 
 Codex installs `skills/freee` with its Skill installer and registers this pinned, portable STDIO command at user scope:
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.2' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
 ```
 
 The opening installation prompt asks Codex to perform both steps. Restart Codex if the newly installed Skill is not discovered immediately, then use `/mcp` to verify the server connection.
@@ -61,7 +61,7 @@ The opening installation prompt asks Codex to perform both steps. Restart Codex 
 Register this as a user-level STDIO MCP command using the client's settings or MCP installer:
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.4.2' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
 ```
 
 Install `skills/freee` from this repository in the client's global Agent Skills location. OpenCode recognizes `~/.agents/skills/freee`; other Agent Skills-compatible clients may use a different user-level directory. The opening installation prompt lets the running agent select the correct location without creating project files.
@@ -123,12 +123,12 @@ This table describes the current `main` branch. “Covered” means the behavior
 | Date-specific employee punch detail | Playwright | Not implemented | — | — |
 | Recursive child-department aggregation | Playwright | Not implemented | — | — |
 | List, filter, paginate, and inspect manager applications | Playwright | Complete | Covered | Filters, pagination, exact detail, and processed history validated |
-| Approve one general employee application | Playwright | Complete with prepare/commit fingerprint | Covered | Validated, including post-write detail verification |
-| Return one general employee application | Playwright | Complete with prepare/commit fingerprint | Covered | Validated (`LV-W08`) |
+| Approve general employee applications | Playwright | Complete for individual actions and confirmed condition-based runs; each item uses prepare/commit fingerprint | Covered | Single-item flow validated, including post-write detail verification |
+| Return general employee applications | Playwright | Complete for individual actions and confirmed condition-based runs; each item uses prepare/commit fingerprint | Covered | Single-item flow validated (`LV-W08`) |
 | List and fully review monthly closing applications | Playwright | Complete; includes member summary, daily rows, alerts, checks, and verified period navigation | Covered | Approved historical review validated; naturally pending cross-month and prepare-fingerprint validation remains (`LV-R11`) |
 | Approve or return one monthly closing application | Playwright | Complete with dedicated full-review fingerprint | Covered | Pending (`LV-W10`) |
 | Delete returned or draft personal applications | Playwright | Not implemented | — | — |
-| Batch approval/change and audit logging | Playwright | Not implemented | — | — |
+| Native batch endpoint and audit logging | Playwright | Not implemented; policy runs use verified single-item commits | — | — |
 
 ## Development quick start
 
@@ -147,7 +147,7 @@ claude --plugin-dir /absolute/path/to/freee-mcp
 
 The repository keeps `.codex/config.toml` for Codex development. The Claude plugin manifest is `.claude-plugin/plugin.json`; its marketplace is `.claude-plugin/marketplace.json`. The plugin resolves its own cached path and persistent data directory, so neither Claude Code nor MCP depends on the user's current working directory.
 
-The Codex configuration uses `default_tools_approval_mode = "writes"`: read-only tools can run directly, while commit tools still trigger client approval. Independently of the client prompt, the server validates `confirm: true`, the preview fingerprint, and the current freee state.
+The Codex configuration keeps `default_tools_approval_mode = "writes"`, so other commit tools still trigger client approval, and sets the per-tool `freee_approval_commit_action` mode to `approve`. This lets one explicitly confirmed general-approval policy run continue through sequential single-item commits without another client prompt for every item. The server still validates `confirm: true`, the preview fingerprint, the leave dependency, and the current freee state on every commit.
 
 ### Maintainer release workflow
 
@@ -228,7 +228,7 @@ npm run freee -- browser credentials-status
 # Configure Playwright credentials securely in System Keychain
 npm run freee -- browser configure --confirm
 
-# Real writes: use --confirm only when the user explicitly requested the exact action
+# Punches: use --confirm only when the user explicitly requested the exact action
 npm run freee -- clock in --confirm
 npm run freee -- clock break-start --confirm
 npm run freee -- clock break-end --confirm
@@ -257,7 +257,7 @@ npm run freee -- requests prepare-withdraw --id APPLICATION_NO
 npm run freee -- requests commit-withdraw --id APPLICATION_NO \
   --fingerprint PREVIEW_SHA256 --confirm
 
-# Employee applications: prepare first, then commit only after explicit review and approval
+# Employee applications: prepare each item; use individual confirmation or an active policy
 npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return
 npm run freee -- approvals commit-action --id APPLICATION_NO \
   --action approve|return --fingerprint PREVIEW_SHA256 --confirm
@@ -272,7 +272,7 @@ npm run freee -- monthly-approvals commit-action \
 
 Commands emit JSON and identify the selected business backend. Before a real punch, the service rechecks the available action using the same backend. Before an application action, it rereads the complete detail and requires the SHA-256 fingerprint to match the read-only preview. An unavailable action, changed detail, ambiguous page, or missing confirmation stops before an API POST or browser click. If a commit returns no complete JSON envelope, treat its result as unknown and never retry the write; use the corresponding read-only status, list, or detail command to verify the exact target.
 
-MCP and CLI writes follow the same safety model. Every real action must start with a prepare tool or command that shows the target, action, content, and fingerprint. A commit is allowed only after the user approves that exact action in a new current message. Development requests, testing, messages such as “continue” or “handle it,” and approval from an earlier message do not count. An unknown write result is never retried automatically.
+MCP and CLI writes follow the same safety model. Every real action uses a prepare tool or command and an unchanged fingerprint. For punches, monthly actions, personal applications, dedicated monthly approvals, and individual general approvals, a commit is allowed only after the user authorizes the exact action in a new current message. General employee approvals also support a user-authorized policy run: the Agent restates the selection conditions, `approve`/`return` mapping, scope and termination, dependency order, and per-item error handling, and the user confirms that policy once. The scope may be one complete pass, repeated scans until no match remains, an explicit range or limit, or a configured recurring automation; it need not pre-enumerate application Nos. or fingerprints. The Agent then scans every pending page, evaluates full details, and prepares, commits, and verifies each match through the single-item interface while validating fingerprints on the user's behalf. Isolated nonmatches or ambiguous items are skipped, and independent work may continue; an unknown write is never retried. Development or testing requests do not authorize real writes.
 
 The API implementation of `team status` is complete and tested, but the `attendance_manager` role used at GCU cannot read employee memberships through the Public API. The API backend returns the permission error and does not fall back to Playwright.
 
@@ -296,12 +296,14 @@ Creation, approved-application cancellation, and pending withdrawal use separate
 
 `approvals list` explicitly selects freee's manager-side `承認` tab and defaults to its pending `未承認` queue; it never reads the default employee-side `申請` tab as an approval queue. Each result includes the applicant. `--status returned|approved|all` reads other manager-side states, while `--page N` selects one page. Results report `page`, `pageCount`, `totalCount`, and the current page's `applicationCount`, so agents can continue without emitting an unbounded employee history. The browser waits for the exact freee response and matching rendered row count before parsing, preventing one filter's stale rows from being returned for another. `approvals detail --id` searches the complete paginated manager workflow and returns the application fields, approval route, department, comments, and freee automatic-check results. For supported `勤務時間修正` applications, `workTimeChange` provides structured `before` and `after` values for clock-in, clock-out, break start, and break end; `null` means freee displayed `未入力`. The same comparison is included in approval previews and their safety fingerprints. Both commands are read-only.
 
-A single application write has two separate steps:
+Each general application is still written through two single-item steps:
 
 1. `approvals prepare-action` reads the current full detail, verifies that the requested button is available, and returns a preview and content fingerprint without clicking a business control.
 2. The agent may call `approvals commit-action ... --confirm` with the same application number, action, and fingerprint only after the user reviews the applicant, type, target date, content, reason, and automatic checks and explicitly requests approval or return in the current message.
 
-Before committing, the CLI rereads the detail. A fingerprint mismatch, missing button, application processed by someone else, or new comment stops the operation and requires a new preview. After the click, the application is reread through the synchronized paginated workflow and must expose the exact expected `承認済` or `差戻し` state. When a self-application leaves the manager history after return, the exact same No. and immutable target fields may instead be verified in the employee history. An application missing from both workflows, or any mismatched target, is reported as unknown and must never be retried automatically. Batch approval is not supported, and development tests never perform real approvals or returns.
+Alternatively, the user may authorize a condition-based policy run. The Agent first restates the exact conditions, `approve` or `return` mapping, scope and termination, dependency-safe order, and per-item failure handling; one explicit confirmation activates that policy for its stated duration. It then reads every pending page on each scan, evaluates full details, and sequentially prepares and commits matching applications without requiring the user to inspect each fingerprint. No batch endpoint is used. A known pre-click preview change may be reread and prepared again under the same policy. Before a `休暇` approval, prepare and commit both scan every pending page for a same-applicant, same-date `勤務時間修正`; an authorized correction is processed first, otherwise that leave is skipped. An isolated nonmatch, unavailable action, or ambiguity skips that item while independent applications continue. An unknown result is never retried and quarantines that item and its dependent leave chain; the whole run stops only for expired or unclear authorization, backend or identity changes, untrustworthy pagination, or another systemic safety failure.
+
+Before committing, the CLI rereads the detail. A fingerprint mismatch, missing button, application processed by someone else, or new comment stops the operation and requires a new preview. After the click, the application is reread through the synchronized paginated workflow and must expose the exact expected `承認済` or `差戻し` state. When a self-application leaves the manager history after return, the exact same No. and immutable target fields may instead be verified in the employee history. An application missing from both workflows, or any mismatched target, is reported as unknown and must never be retried automatically. Development tests never perform real approvals or returns.
 
 ## Monthly attendance approval review
 

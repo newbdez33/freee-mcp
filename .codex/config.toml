@@ -5,3 +5,6 @@ startup_timeout_sec = 20
 tool_timeout_sec = 180
 required = true
 default_tools_approval_mode = "writes"
+
+[mcp_servers.freee.tools.freee_approval_commit_action]
+approval_mode = "approve"

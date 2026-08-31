@@ -7,8 +7,10 @@ import type { FreeeOperations } from "./service.js";
 import { version } from "./version.js";
 
 export const mcpServerInstructions = [
-  "Use read tools when they match the user's request. For a 月次勤怠締め manager action, use the dedicated monthly approval review and prepare tools; never bypass them with the general approval commit. Never call a clock, approval, monthly, or personal-application commit tool unless the user's current message explicitly authorizes that exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. A general request to implement, inspect, continue, or handle work is not approval for a real write.",
-  "The selected API or Playwright backend is exclusive for each server process; never fall back. Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, show the exact setupCommand returned in the error and instruct the user to run it directly in a local interactive terminal; never accept credentials in chat or MCP arguments. If a preview changes or a result is unknown, stop and read status/detail before considering another write. Do not retry a write automatically.",
+  "General manager application actions may run individually or under one user-authorized policy. Before a policy run, restate its selection conditions, approve/return mapping, scope and termination, dependency order, and per-item error handling, then obtain one explicit confirmation. During that scope, scan every pending page, evaluate each full detail, prepare and commit matches sequentially, and match fingerprints on the user's behalf. No batch endpoint or per-item confirmation is required. Skip isolated nonmatches or ambiguous items and continue independent work. Never retry an unknown write.",
+  "A general approval policy may cover one pass, repeated scans until no match remains, an explicit range or limit, or a configured recurring automation; it need not pre-enumerate application Nos. or fingerprints. A known pre-click preview error may be reread and prepared again under the same authorization. A leave blocker may be processed first when the policy authorizes it; otherwise skip the leave. Quarantine an unknown item and its dependent leave chain, but continue independent matches. Stop the whole run only when authorization expires or becomes unclear, backend or identity changes, pagination is untrustworthy, or another systemic failure makes continued decisions unsafe.",
+  "Use read tools when they match the user's request. For a 月次勤怠締め manager action, use the dedicated monthly approval review and prepare tools; never bypass them with the general approval commit. Never call a clock, monthly, personal-application, or monthly-approval commit tool unless the user's current message explicitly authorizes that one exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. The selected API or Playwright backend is exclusive; never fall back. Do not retry an unknown write.",
+  "Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, show the exact setupCommand returned in the error and instruct the user to run it directly in a local interactive terminal; never accept credentials in chat or MCP arguments.",
 ].join(" ");
 
 const companyIdSchema = z.number().int().positive().optional()
@@ -383,7 +385,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_approval_prepare_action", {
     title: "Preview a freee application action",
-    description: "Read and preview one available approval or return action, including any structured 勤務時間修正 before/after comparison, and return a binding fingerprint. Before approving a 休暇 application, every pending approval-list page is checked for same-applicant, same-date 勤務時間修正 applications; a blocker or an unreliable applicant/date stops without a fingerprint. No application is changed.",
+    description: "Read and preview one available approval or return action, including any structured 勤務時間修正 before/after comparison, and return a binding fingerprint. It may be used during a confirmed policy run for sequential general approve or return actions; the Agent evaluates the rule and matches each fingerprint without requiring per-item user confirmation. Before approving a 休暇 application, every pending approval-list page is checked for same-applicant, same-date 勤務時間修正 applications; a blocker or an unreliable applicant/date stops this item without a fingerprint. No application is changed.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,
@@ -393,12 +395,12 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_approval_commit_action", {
     title: "Commit a freee application action",
-    description: "Change one real application only after matching preview and explicit current-message approval. A 休暇 approval repeats the complete pending 勤務時間修正 dependency check, then reopens the exact target and revalidates its detail, action, and fingerprint before any click. Never call directly or retry automatically.",
+    description: "Change one real application after matching its preview and explicit authorization for this exact item or a still-active confirmed policy run. A policy may map user-defined conditions to approve or return, cover later-discovered matches within its stated scope, and use this single-item tool sequentially without per-item confirmation; the Agent evaluates full detail and matches the fingerprint on the user's behalf. Skip isolated nonmatches or ambiguous items and continue independent work. A known pre-click preview error may be prepared again under the same policy, but an unknown write must never be retried. A 休暇 approval repeats the complete pending 勤務時間修正 dependency check, then reopens the exact target and revalidates its detail, action, and fingerprint before any click.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,
       fingerprint: fingerprintSchema,
-      confirm: z.literal(true).describe("Must be true only after explicit current-message user approval."),
+      confirm: z.literal(true).describe("Must be true only after explicit user authorization for this exact item or for a still-active policy run whose conditions, approve/return mapping, scope, termination, and error handling were confirmed."),
     },
     annotations: {
       readOnlyHint: false,

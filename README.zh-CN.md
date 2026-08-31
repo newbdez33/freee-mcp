@@ -51,7 +51,7 @@ claude plugin update freee@freee-tools --scope user
 Codex 使用 Skill installer 安装 `skills/freee`，并在用户级注册下面这个固定版本、可移植的 STDIO 命令：
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.2' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
 ```
 
 开头的安装提示会让 Codex 完成这两个步骤。如果新 Skill 没有立即被发现，请重启 Codex，然后通过 `/mcp` 验证 Server 连接。
@@ -61,7 +61,7 @@ codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.2' f
 通过客户端设置或 MCP 安装器，把下面命令注册为用户级 STDIO MCP：
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.4.2' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
 ```
 
 将本仓库的 `skills/freee` 安装到客户端的全局 Agent Skills 目录。OpenCode 识别 `~/.agents/skills/freee`；其他兼容 Agent Skills 的客户端可能使用不同的用户级目录。开头的安装提示会让当前 Agent 选择正确位置，不会创建项目文件。
@@ -123,12 +123,12 @@ Pi 的等效手动更新命令是 `pi update`。可移植 MCP 安装会刻意固
 | 指定日期的员工打卡明细 | Playwright | 未实现 | — | — |
 | 递归汇总子部门 | Playwright | 未实现 | — | — |
 | 管理员申请的列表、筛选、分页和详情 | Playwright | 完成 | 已覆盖 | 筛选、分页、准确详情和已处理历史均已验证 |
-| 批准单条一般员工申请 | Playwright | 完成，使用 prepare/commit 指纹 | 已覆盖 | 已验证，包括写后详情复核 |
-| 差戻し单条一般员工申请 | Playwright | 完成，使用 prepare/commit 指纹 | 已覆盖 | 已验证（`LV-W08`） |
+| 批准一般员工申请 | Playwright | 单条操作及已确认的条件式运行均已完成；每项使用 prepare/commit 指纹 | 已覆盖 | 单条流程已验证，包括写后详情复核 |
+| 差戻し一般员工申请 | Playwright | 单条操作及已确认的条件式运行均已完成；每项使用 prepare/commit 指纹 | 已覆盖 | 单条流程已验证（`LV-W08`） |
 | 月次締め申请列表与完整审阅 | Playwright | 完成，包括成员汇总、逐日记录、警告、检查及已验证的月份导航 | 已覆盖 | 已验证历史批准记录的完整审阅；自然待处理申请的跨月导航与 prepare 指纹仍待验收（`LV-R11`） |
 | 批准或差戻し单条月次締め申请 | Playwright | 完成，使用绑定完整审阅内容的专用指纹 | 已覆盖 | 待验收（`LV-W10`） |
 | 删除已退回或草稿状态的本人申请 | Playwright | 未实现 | — | — |
-| 批量审批/修改和审计日志 | Playwright | 未实现 | — | — |
+| 原生批量接口和审计日志 | Playwright | 未实现；策略运行使用经验证的单条 commit | — | — |
 
 ## 开发快速开始
 
@@ -147,7 +147,7 @@ claude --plugin-dir /absolute/path/to/freee-mcp
 
 仓库中的 `.codex/config.toml` 用于 Codex 开发配置。Claude 插件清单是 `.claude-plugin/plugin.json`，marketplace 是 `.claude-plugin/marketplace.json`。插件会自行解析缓存路径和持久数据目录，因此 Claude Code 与 MCP 都不依赖用户当前工作目录。
 
-Codex 配置使用 `default_tools_approval_mode = "writes"`：只读工具可直接运行，commit 工具仍会触发客户端审批。无论客户端是否提示，Server 都会独立校验 `confirm: true`、预览指纹和当前 freee 状态。
+Codex 配置保留 `default_tools_approval_mode = "writes"`，因此其他 commit 工具仍会触发客户端审批；同时把 `freee_approval_commit_action` 的单工具模式设为 `approve`。这样，一次明确确认的一般审批策略运行可连续调用单条 commit，不会每项都再次弹出客户端提示。Server 仍会在每次 commit 时校验 `confirm: true`、预览指纹、休假依赖和当前 freee 状态。
 
 ### 维护者发布流程
 
@@ -228,7 +228,7 @@ npm run freee -- browser credentials-status
 # 在 System Keychain 中安全配置 Playwright 凭据
 npm run freee -- browser configure --confirm
 
-# 真实写入：只有用户明确要求该准确操作时才使用 --confirm
+# 打卡：只有用户明确要求该准确操作时才使用 --confirm
 npm run freee -- clock in --confirm
 npm run freee -- clock break-start --confirm
 npm run freee -- clock break-end --confirm
@@ -257,7 +257,7 @@ npm run freee -- requests prepare-withdraw --id APPLICATION_NO
 npm run freee -- requests commit-withdraw --id APPLICATION_NO \
   --fingerprint PREVIEW_SHA256 --confirm
 
-# 员工申请：先 prepare，明确审阅并批准后才能 commit
+# 员工申请：逐项 prepare；使用单条确认或已启用策略
 npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return
 npm run freee -- approvals commit-action --id APPLICATION_NO \
   --action approve|return --fingerprint PREVIEW_SHA256 --confirm
@@ -272,7 +272,7 @@ npm run freee -- monthly-approvals commit-action \
 
 命令输出 JSON，并标明选定的业务后端。真实打卡前，服务会使用同一后端重新检查可用操作；申请操作前，会重新读取完整详情并要求 SHA-256 指纹与只读预览一致。操作不可用、详情变化、页面有歧义或缺少确认时，都会在 API POST 或浏览器点击前停止。如果 commit 没有返回完整 JSON envelope，应把结果视为未知，绝不能重试写入；请通过对应的只读状态、列表或详情命令核验准确对象。
 
-MCP 和 CLI 写操作遵循同一安全模型。每个真实操作都必须先用 prepare 工具或命令显示对象、动作、内容和指纹。只有用户在新的当前消息中批准该准确操作后才能 commit。开发、测试、“继续”“处理一下”等请求以及更早消息中的批准都不算有效确认。结果未知的写操作绝不能自动重试。
+MCP 和 CLI 写操作遵循同一安全模型。每个真实操作都使用 prepare 工具或命令及未变化的指纹。打卡、月次操作、本人申请、专用月次审批和单条一般审批，只有用户在新的当前消息中授权准确操作后才能 commit。一般员工审批还支持用户授权的策略运行：Agent 复述筛选条件、`approve`/`return` 动作映射、范围与终止条件、依赖顺序和单项错误处理，用户一次确认该策略。范围可以是完整扫描一次、重复扫描至无匹配项、明确的范围或数量限制，或已配置的定期自动化；无需预先列出所有申请 No. 或指纹。之后 Agent 读取全部待审批页、评估完整详情，并通过单条接口逐项 prepare、commit 和验证，同时代替用户核对指纹。单项不匹配或有歧义时可跳过并继续独立项目；结果未知的写入绝不重试。开发或测试请求不授权真实写入。
 
 API 版 `team status` 已实现并通过自动测试，但 GCU 使用的 `attendance_manager` 角色无法通过 Public API 读取员工归属。API 后端会返回权限错误，不会回退到 Playwright。
 
@@ -296,12 +296,14 @@ Playwright 后端支持 System Keychain 凭据、持久登录、本人打卡状�
 
 `approvals list` 明确选择管理员侧 `承認` 标签，默认读取 `未承認` 队列，绝不会把默认员工侧 `申請` 当作审批队列。每条结果包含申请人。`--status returned|approved|all` 读取其他管理员状态，`--page N` 选择单页。结果返回 `page`、`pageCount`、`totalCount` 和当前页 `applicationCount`，Agent 无需一次输出无限历史。浏览器等待准确 freee 响应及匹配的渲染行数，避免把旧筛选器 DOM 返回给新筛选器。`approvals detail --id` 搜索完整分页管理员流程，并返回申请字段、审批路径、部门、评论和 freee 自动检查结果。对于受支持的 `勤務時間修正`，`workTimeChange` 会结构化返回上班、下班、休息开始和休息结束的 `before`/`after` 值；`null` 表示 freee 显示 `未入力`。承认预览及其安全指纹也会包含这组对照。这两个命令均为只读。
 
-单条申请写操作分为两个阶段：
+每条一般申请仍通过两个单条阶段写入：
 
 1. `approvals prepare-action` 读取当前完整详情，确认请求按钮可用，返回预览和内容指纹，不点击业务控件。
 2. 只有用户审阅申请人、类型、对象日期、内容、理由和自动检查，并在当前消息中明确要求批准或差戻し后，Agent 才能使用同一个编号、操作和指纹调用 `approvals commit-action ... --confirm`。
 
-commit 前 CLI 会重新读取详情。指纹不一致、按钮缺失、申请已被他人处理或出现新评论时都会停止，并要求重新预览。点击后会通过同步分页流程重新读取同一申请，最终状态必须准确为 `承認済` 或 `差戻し`。本人申请在差戻し后如果离开管理员历史，可以改用员工历史中相同 No. 和不可变对象字段进行验证。两个工作流都找不到或对象不匹配时报告未知，绝不能自动重试。当前不支持批量审批，开发测试也不会执行真实批准或差戻し。
+用户也可以授权条件式策略运行。Agent 先复述准确条件、`approve` 或 `return` 映射、范围与终止条件、依赖安全顺序以及单项失败处理；一次明确确认会在所述范围内启用该策略。之后每轮扫描都读取全部待审批页和完整详情，按顺序 prepare 并 commit 匹配申请，用户无需逐项检查指纹。该流程不使用批量接口。已明确为点击前失败的预览变化，可以在同一策略下重新读取并 prepare。批准 `休暇` 前，prepare 和 commit 都会读取全部待审批页，查找同一申请人、同一日期的 `勤務時間修正`；策略授权该修正时先处理，否则跳过该休假。单项不匹配、操作不可用或有歧义时跳过该项并继续独立申请。结果未知的项目绝不重试，并隔离该项目及其休假依赖链；只有授权过期或不清楚、后端或身份变化、分页不可信或其他系统性安全故障才停止整个运行。
+
+commit 前 CLI 会重新读取详情。指纹不一致、按钮缺失、申请已被他人处理或出现新评论时都会停止，并要求重新预览。点击后会通过同步分页流程重新读取同一申请，最终状态必须准确为 `承認済` 或 `差戻し`。本人申请在差戻し后如果离开管理员历史，可以改用员工历史中相同 No. 和不可变对象字段进行验证。两个工作流都找不到或对象不匹配时报告未知，绝不能自动重试。开发测试不会执行真实批准或差戻し。
 
 ## 月次考勤审批审阅
 

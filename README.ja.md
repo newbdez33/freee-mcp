@@ -51,7 +51,7 @@ claude plugin update freee@freee-tools --scope user
 Codex は Skill installer で `skills/freee` をインストールし、次のバージョン固定されたポータブル STDIO コマンドをユーザースコープに登録します。
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' freee-mcp
 ```
 
 冒頭のインストールプロンプトが Codex に両方の手順を実行させます。新しい Skill がすぐに検出されない場合は Codex を再起動し、`/mcp` で Server 接続を確認してください。
@@ -61,7 +61,7 @@ codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' f
 クライアント設定または MCP installer を使用し、次のコマンドをユーザーレベルの STDIO MCP として登録します。
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' freee-mcp
 ```
 
 このリポジトリの `skills/freee` をクライアントのグローバル Agent Skills 位置へインストールします。OpenCode は `~/.agents/skills/freee` を認識します。他の Agent Skills 対応クライアントではユーザーレベルの場所が異なる場合があります。冒頭のインストールプロンプトにより、プロジェクトファイルを作らずに実行中の Agent が適切な場所を選択できます。
@@ -126,9 +126,10 @@ Pi の同等の手動更新は `pi update` です。ポータブル MCP イン�
 | 一般従業員申請を承認 | Playwright | 個別操作と確認済み条件付き実行に対応。各項目は prepare/commit fingerprint を使用 | 対応済み | 書き込み後の詳細確認を含む単一項目 flow を検証済み |
 | 一般従業員申請を差し戻し | Playwright | 個別操作と確認済み条件付き実行に対応。各項目は prepare/commit fingerprint を使用 | 対応済み | 単一項目 flow を検証済み（`LV-W08`） |
 | 月次勤怠締め申請の一覧と完全レビュー | Playwright | 月次集計、日次行、警告、チェック、検証付き期間移動を含め完了 | 対応済み | 承認済み履歴の完全レビューを検証済み。自然発生した未承認申請での月跨ぎと prepare fingerprint は未検証（`LV-R11`） |
-| 月次勤怠締め申請 1 件を承認または差し戻し | Playwright | 完全レビューを束縛する専用 fingerprint 付きで完了 | 対応済み | 未検証（`LV-W10`） |
+| 月次勤怠締め申請を承認または差し戻し | Playwright | 個別操作と確認済み条件付き batch に対応。各項目は完全レビューを束縛する専用 fingerprint を使用 | 対応済み | 単一項目の書き込みは未検証（`LV-W10`） |
 | 差戻し済みまたは下書きの本人申請を削除 | Playwright | 未実装 | — | — |
-| native batch endpoint と監査ログ | Playwright | 未実装。policy run は検証済みの単一項目 commit を使用 | — | — |
+| 条件付き manager approval batch | Playwright | 一般承認と専用月次承認を、検証済みの単一項目 commit で順次実行する形で対応 | MCP と Skill の assertion で対応 | 単一項目 flow を個別にテスト |
+| 永続化 batch-policy state と監査ログ | Playwright | 未実装。Agent が確認済み範囲の policy を run 中保持 | — | — |
 
 ## 開発クイックスタート
 
@@ -147,7 +148,7 @@ claude --plugin-dir /absolute/path/to/freee-mcp
 
 リポジトリの `.codex/config.toml` は Codex 開発設定です。Claude プラグイン manifest は `.claude-plugin/plugin.json`、marketplace は `.claude-plugin/marketplace.json` です。プラグインはキャッシュパスと永続データディレクトリを自分で解決するため、Claude Code も MCP もユーザーの現在の作業ディレクトリに依存しません。
 
-Codex 設定は `default_tools_approval_mode = "writes"` を維持するため、他の commit ツールは引き続きクライアント承認を要求します。一方、`freee_approval_commit_action` のツール単位 mode は `approve` に設定します。これにより、明示確認済みの一般承認 policy run は項目ごとの追加 prompt なしで単一項目 commit を連続実行できます。Server は各 commit で引き続き `confirm: true`、preview fingerprint、休暇依存関係、現在の freee 状態を検証します。
+Codex 設定は `default_tools_approval_mode = "writes"` を維持するため、無関係な commit ツールは引き続きクライアント承認を要求します。一方、manager 用の `freee_approval_commit_action` と `freee_monthly_approval_commit_action` のツール単位 mode は `approve` に設定します。これにより、明示確認済みの manager approval policy run は項目ごとの追加 prompt なしで単一項目 commit を連続実行できます。Server は各 commit で引き続き `confirm: true`、一致する preview fingerprint、現在の freee 状態、すべての休暇依存関係、月次の支払月/勤務月対応を検証します。
 
 ### メンテナー向けリリース手順
 
@@ -262,7 +263,7 @@ npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|r
 npm run freee -- approvals commit-action --id APPLICATION_NO \
   --action approve|return --fingerprint PREVIEW_SHA256 --confirm
 
-# 月次承認：完全レビュー後に対象を明示承認してから commit
+# 月次承認：各項目を完全レビューし、個別確認または有効な policy で commit
 npm run freee -- monthly-approvals prepare-action \
   --id APPLICATION_NO --action approve|return
 npm run freee -- monthly-approvals commit-action \
@@ -272,7 +273,7 @@ npm run freee -- monthly-approvals commit-action \
 
 コマンドは JSON を出力し、選択されたビジネスバックエンドを示します。実打刻前には同じバックエンドで利用可能操作を再確認し、申請操作前には完全な詳細を再取得して SHA-256 fingerprint が読み取り専用 preview と一致することを要求します。操作不可、詳細変更、画面の曖昧さ、確認不足は API POST またはブラウザークリックより前に停止します。commit が完全な JSON envelope を返さなかった場合は結果不明として扱い、書き込みを再実行しないでください。対応する読み取り専用 status、list、detail で正確な対象を確認します。
 
-MCP と CLI の書き込みは同じ安全モデルに従います。各実操作では prepare ツールまたはコマンドと変更されていない fingerprint を使用します。打刻、月次操作、本人申請、専用月次承認、一般承認 1 件の commit は、ユーザーが新しい現在のメッセージでその正確な操作を許可した場合に限ります。一般従業員承認では、ユーザー許可済みの policy run も利用できます。Agent が選択条件、`approve`/`return` の対応、範囲と終了条件、依存順序、項目別 error 処理を復唱し、ユーザーがその policy を 1 回確認します。範囲は完全 scan 1 回、一致項目がなくなるまでの反復 scan、明示範囲/件数上限、または設定済み定期 automation とでき、申請 No. や fingerprint の事前列挙は不要です。Agent は未承認の全ページと完全詳細を読み、単一項目 interface で一致項目を順に prepare、commit、検証し、fingerprint をユーザーに代わって照合します。単独の不一致や曖昧な項目は skip し、独立項目を継続できます。結果不明の書き込みは再試行しません。開発・テスト依頼は実書き込みを許可しません。
+MCP と CLI の書き込みは同じ安全モデルに従います。各実操作では prepare ツールまたはコマンドと変更されていない fingerprint を使用します。打刻、本人月次操作、本人申請は現在メッセージでの個別承認が必要です。一般従業員承認と専用月次 manager 承認は、個別承認に加えてユーザー確認済みの条件付き batch policy を利用できます。Agent が選択条件、`approve`/`return` の対応、範囲と終了条件、依存順序、項目別 error 処理を復唱し、ユーザーがその policy を 1 回確認します。範囲は完全 scan 1 回、一致項目がなくなるまでの反復 scan、明示範囲/件数上限、または設定済み定期 automation とでき、申請 No. や fingerprint の事前列挙は不要です。Agent は未承認の全 source page を読み、一般申請の完全詳細または月次の完全レビューを評価し、単一項目 interface で一致項目を順に prepare、commit、検証し、fingerprint をユーザーに代わって照合します。これは MCP が対応する batch automation で、単独の不一致や曖昧な項目は skip して独立項目を継続できます。結果不明の書き込みは再試行しません。開発・テスト依頼は実書き込みを許可しません。
 
 API 版 `team status` は実装・自動テスト済みですが、GCU で使われる `attendance_manager` role は Public API から従業員所属を参照できません。API バックエンドは権限エラーを返し、Playwright へフォールバックしません。
 
@@ -301,7 +302,7 @@ Playwright バックエンドは System Keychain 認証情報、永続ログイ�
 1. `approvals prepare-action` は現在の完全詳細を読み、要求ボタンが利用可能か確認し、業務コントロールをクリックせず preview と content fingerprint を返します。
 2. ユーザーが申請者、種別、対象日、内容、理由、自動チェックを確認し、現在のメッセージで承認または差戻しを明示的に依頼した場合だけ、Agent は同じ申請番号、操作、fingerprint で `approvals commit-action ... --confirm` を呼び出せます。
 
-ユーザーは条件付き policy run を許可することもできます。Agent は正確な条件、`approve` または `return` の対応、範囲と終了条件、依存関係に安全な順序、項目別失敗処理を復唱し、1 回の明示確認でその範囲の policy を有効にします。その後は各 scan で未承認の全ページと完全詳細を読み、一致申請を順に prepare、commit し、ユーザーが fingerprint を項目ごとに確認する必要はありません。batch endpoint は使用しません。クリック前失敗と明示された preview 変更は、同じ policy の下で再読込・prepare できます。`休暇` を承認する前には prepare と commit の両方が未承認の全ページから同一申請者・同一日付の `勤務時間修正` を探し、policy がその修正を許可する場合は先に処理し、それ以外は休暇を skip します。単独の不一致、操作不可、曖昧さはその項目だけ skip して独立申請を継続します。結果不明の項目は再試行せず、その項目と休暇依存 chain を隔離します。許可の期限切れ/不明確化、backend/identity 変更、信頼できない pagination、その他の system-level safety failure の場合だけ run 全体を停止します。
+ユーザーは条件付き batch policy を許可することもできます。Agent は正確な条件、`approve` または `return` の対応、範囲と終了条件、依存関係に安全な順序、項目別失敗処理を復唱し、1 回の明示確認でその範囲の policy を有効にします。その後は各 scan で未承認の全ページと完全詳細を読み、一致申請を順に prepare、commit し、ユーザーが fingerprint を項目ごとに確認または承認する必要はありません。クリック前失敗と明示された preview 変更は、同じ policy の下で再読込・prepare できます。`休暇` を承認する前には prepare と commit の両方が未承認の全ページから同一申請者・同一日付の `勤務時間修正` を探し、policy がその修正を許可する場合は先に処理し、それ以外は休暇を skip します。単独の不一致、操作不可、曖昧さはその項目だけ skip して独立申請を継続します。結果不明の項目は再試行せず、その項目と休暇依存 chain を隔離します。許可の期限切れ/不明確化、backend/identity 変更、信頼できない pagination、その他の system-level safety failure の場合だけ run 全体を停止します。
 
 commit 前に CLI は詳細を再取得します。fingerprint 不一致、ボタン欠落、他者による処理、新しいコメントがあれば停止し、新しい preview を要求します。クリック後は同期されたページング workflow で申請を再取得し、最終状態が正確に `承認済` または `差戻し` でなければなりません。本人申請が差戻し後に管理者履歴から消えた場合、従業員履歴にある同じ No. と不変の対象項目で検証できます。両方に存在しない、または対象が異なる場合は結果不明とし、自動再試行しません。開発テストは実際の承認や差戻しを行いません。
 
@@ -311,7 +312,7 @@ commit 前に CLI は詳細を再取得します。fingerprint 不一致、ボ�
 
 `monthly-approvals review --id` は正確な申請種別と `対象日` に整合する明示的な支払月を確認します。その支払月を freee 表示中の対応関係から勤務月へ写像し、勤怠モニターを対象勤務月へ移動して、申請者を表示中の一意なメンバーへ対応付け、公式従業員勤怠ページを開き、日次表を読む前に同じ支払月/勤務月の組み合わせを再確認します。対応関係が欠落または曖昧な場合は `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`、月不一致、従業員の重複、公式勤怠 link の欠落、table schema 変更では安全停止し、不完全なレビューを返しません。成功時は両期間、月次集計、一意に識別した日次勤怠表、日別 alert、ページ警告、申請詳細、統合自動チェックを返します。
 
-月次の管理者書き込み前には `monthly-approvals prepare-action --id NO --action approve|return` を使用します。fingerprint は明示的な支払月、freee で検証した勤務月、完全な申請、月次集計、日次行、警告、チェック、要求操作を束縛します。ユーザーが新しい現在のメッセージで正確な preview を確認した場合だけ `monthly-approvals commit-action ... --confirm` を許可します。commit は対応関係を再導出してレビューを再構築し、正確な申請を再度開き、どちらかの月または束縛データが変わっていればクリック前に停止します。1 回クリックした後は一般承認と同じ書き込み後検証を行います。一括操作は未対応で、この専用経路は実 freee 検証待ちです。
+月次の各管理者書き込み前には `monthly-approvals prepare-action --id NO --action approve|return` を使用します。fingerprint は明示的な支払月、freee で検証した勤務月、完全な申請、月次集計、日次行、警告、チェック、要求操作を束縛します。`monthly-approvals commit-action ... --confirm` は、新しい現在メッセージで正確な preview を個別確認した場合、または有効な確認済み manager approval batch policy に一致した場合に許可されます。そのため Agent は 1 回の許可 run で月次申請を条件付き承認または差戻しできますが、内部では 1 件ずつ処理します。各 commit は対応関係を再導出してレビューを再構築し、正確な申請を再度開き、どちらかの月または束縛データが変わっていればクリック前に停止します。1 回クリックした後は一般承認と同じ書き込み後検証を行います。この専用単一項目 write path は実 freee 検証待ちです（`LV-W10`）。
 
 ## バックエンド選択
 

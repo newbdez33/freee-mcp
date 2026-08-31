@@ -32,26 +32,31 @@ test("Claude plugin bundles the MCP and Skill without a project working director
   assert.equal(marketplace.plugins[0].name, "freee");
   assert.equal(packageJson.bin["freee-mcp"], "scripts/standalone-mcp.mjs");
   assert.match(readme, new RegExp(`#v${packageJson.version.replaceAll(".", "\\.")}`));
-  assert.match(skill, /Authorize general approval automation/);
+  assert.match(skill, /Authorize manager approval batch automation/);
   assert.match(skill, /user does not need to copy, repeat, or personally compare a raw SHA-256 value/);
   assert.match(skill, /Stop the whole run only/);
-  assert.match(skill, /general `approve` or `return` commits/);
+  assert.match(skill, /general or dedicated monthly `approve` or `return` prepare\/commit calls/);
   assert.match(skill, /Do not require a fixed candidate snapshot/);
   assert.match(skill, /repeated scans until no matching item remains/);
   assert.match(skill, /semantic judgment to full detail/);
-  assert.match(skill, /`APPROVAL_PREVIEW_CHANGED` explicitly means no business action occurred/);
+  assert.match(skill, /`APPROVAL_PREVIEW_CHANGED` and `MONTHLY_APPROVAL_PREVIEW_CHANGED` explicitly mean no business action occurred/);
   assert.match(skill, /MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED/);
   assert.match(skill, /Never substitute a fixed one-month offset/);
   assert.match(skill, /LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION/);
+  assert.match(skill, /supports condition-based batch approval/);
   assert.doesNotMatch(skill, /Do not delete, batch-approve, or batch-change anything/);
-  assert.match(commands, /There is no batch approval command/);
-  assert.match(commands, /general `approve` and `return` actions/);
+  assert.doesNotMatch(skill, /Batch actions are not supported/);
+  assert.match(commands, /supported condition-based batch approval workflow/);
+  assert.match(commands, /general or dedicated monthly `approve` and `return` actions/);
   assert.match(commands, /fixed candidate snapshot, full No\. enumeration, and precomputed fingerprints are not required/);
   assert.match(commands, /independent matches may continue/);
   assert.match(commands, /returns `paymentPeriod` plus work `period`/);
   assert.match(commands, /never hardcodes a one-month subtraction/);
+  assert.doesNotMatch(commands, /There is no batch approval command/);
+  assert.match(readme, /Condition-based manager approval batches/);
   assert.match(codexConfig, /default_tools_approval_mode = "writes"/);
   assert.match(codexConfig, /\[mcp_servers\.freee\.tools\.freee_approval_commit_action\]\napproval_mode = "approve"/);
+  assert.match(codexConfig, /\[mcp_servers\.freee\.tools\.freee_monthly_approval_commit_action\]\napproval_mode = "approve"/);
 });
 
 test("Claude plugin MCP starts from an unrelated working directory", async () => {

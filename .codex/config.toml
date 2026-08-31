@@ -8,3 +8,6 @@ default_tools_approval_mode = "writes"
 
 [mcp_servers.freee.tools.freee_approval_commit_action]
 approval_mode = "approve"
+
+[mcp_servers.freee.tools.freee_monthly_approval_commit_action]
+approval_mode = "approve"

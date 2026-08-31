@@ -141,8 +141,18 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
       "freee_approval_prepare_action",
       "freee_approval_commit_action",
     ]);
-    assert.match(client.getInstructions(), /Always prepare first/);
-    assert.match(client.getInstructions(), /setupCommand/);
+    const instructions = client.getInstructions();
+    assert.match(instructions, /Always prepare first/);
+    assert.match(instructions, /setupCommand/);
+    assert.match(instructions, /user-authorized policy/);
+    assert.match(instructions, /match fingerprints on the user's behalf/);
+    assert.match(instructions, /approve\/return mapping/);
+    assert.match(instructions, /need not pre-enumerate application Nos/);
+    assert.match(instructions, /continue independent matches/);
+    assert.match(
+      instructions.slice(0, 512),
+      /No batch endpoint or per-item confirmation is required/,
+    );
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_team_status").annotations.readOnlyHint,
       true,
@@ -168,8 +178,29 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
       /every pending approval-list page/,
     );
     assert.match(
+      listed.tools.find((tool) => tool.name === "freee_approval_prepare_action").description,
+      /confirmed policy run/,
+    );
+    assert.match(
       listed.tools.find((tool) => tool.name === "freee_approval_commit_action").description,
       /reopens the exact target/,
+    );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_approval_commit_action").description,
+      /matches the fingerprint on the user's behalf/,
+    );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_approval_commit_action").description,
+      /cover later-discovered matches/,
+    );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_approval_commit_action")
+        .inputSchema.properties.confirm.description,
+      /conditions, approve\/return mapping, scope, termination, and error handling/,
+    );
+    assert.doesNotMatch(
+      listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action").description,
+      /policy run/,
     );
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_personal_application_commit_create").annotations.destructiveHint,

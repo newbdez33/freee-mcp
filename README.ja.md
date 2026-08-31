@@ -51,7 +51,7 @@ claude plugin update freee@freee-tools --scope user
 Codex は Skill installer で `skills/freee` をインストールし、次のバージョン固定されたポータブル STDIO コマンドをユーザースコープに登録します。
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
 ```
 
 冒頭のインストールプロンプトが Codex に両方の手順を実行させます。新しい Skill がすぐに検出されない場合は Codex を再起動し、`/mcp` で Server 接続を確認してください。
@@ -61,7 +61,7 @@ codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' f
 クライアント設定または MCP installer を使用し、次のコマンドをユーザーレベルの STDIO MCP として登録します。
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
 ```
 
 このリポジトリの `skills/freee` をクライアントのグローバル Agent Skills 位置へインストールします。OpenCode は `~/.agents/skills/freee` を認識します。他の Agent Skills 対応クライアントではユーザーレベルの場所が異なる場合があります。冒頭のインストールプロンプトにより、プロジェクトファイルを作らずに実行中の Agent が適切な場所を選択できます。
@@ -185,10 +185,10 @@ workflow は全検証を再実行し、現在の `main` commit に annotation �
 | `freee_personal_application_prepare_withdraw` | 読み取り専用 preview | 未承認本人申請の取下げ preview と fingerprint を生成 |
 | `freee_personal_application_commit_withdraw` | 書き込み | 再検証して未承認本人申請を取り下げ |
 | `freee_approvals_list` | 読み取り専用 | 未承認、承認済み、差戻し、全申請を一覧 |
-| `freee_monthly_approvals_list` | 読み取り専用 | 管理者申請 1 ページから `月次勤怠締め` のみを一覧 |
-| `freee_monthly_approval_review` | 読み取り専用 | 月次申請 1 件を申請者の集計、日次勤怠、警告、自動チェックとともにレビュー |
-| `freee_monthly_approval_prepare_action` | 読み取り専用 preview | 完全な月次レビューと承認/差戻し操作を fingerprint に束縛 |
-| `freee_monthly_approval_commit_action` | 書き込み | 完全レビューを再検証し月次申請 1 件を承認または差し戻し |
+| `freee_monthly_approvals_list` | 読み取り専用 | `月次勤怠締め` を明示的な支払月と対応付けた勤務月とともに一覧 |
+| `freee_monthly_approval_review` | 読み取り専用 | 支払月/勤務月を検証し、申請者の集計、日次勤怠、警告、自動チェックをレビュー |
+| `freee_monthly_approval_prepare_action` | 読み取り専用 preview | 両期間と完全な月次レビュー/操作を fingerprint に束縛 |
+| `freee_monthly_approval_commit_action` | 書き込み | 両期間を再導出し、完全レビューを再検証して承認または差し戻し |
 | `freee_approval_detail` | 読み取り専用 | 申請 1 件の完全な詳細と、対応する勤務時間修正の変更前/変更後を構造化して取得 |
 | `freee_approval_prepare_action` | 読み取り専用 preview | 承認または差戻し preview と fingerprint を生成 |
 | `freee_approval_commit_action` | 書き込み | fingerprint を再検証し申請 1 件を承認または差し戻し |
@@ -307,11 +307,11 @@ commit 前に CLI は詳細を再取得します。fingerprint 不一致、ボ�
 
 ## 月次勤怠承認レビュー
 
-`monthly-approvals list` は同期された管理者承認 1 ページから `月次勤怠締め` を絞り込みます。後続の元ページを確認する場合は `pageCount` を使用します。`sourceTotalCount` は種別絞り込み前の全件数、`applicationCount` は返却ページ内の月次件数です。
+`monthly-approvals list` は同期された管理者承認 1 ページから `月次勤怠締め` を絞り込みます。`2026年09月の支払分` のような文言から明示的な支払月を 1 つ解析し、freee 表示中の支払月/勤務月対応から勤務月を導出し、公式 navigator でその組み合わせを検証して `paymentPeriod` と勤務 `period` を返します。支払月や `対象日` を勤務月として扱わず、1 か月減算を固定しません。後続の元ページを確認する場合は `pageCount` を使用します。`sourceTotalCount` は種別絞り込み前の全件数、`applicationCount` は返却ページ内の月次件数です。
 
-`monthly-approvals review --id` は正確な申請種別と勤務月を確認し、勤怠モニターをその勤務月へ移動し、申請者を表示中の一意なメンバーへ対応付け、公式従業員勤怠ページを開き、日次表を読む前に同じ勤務月を再確認します。移動は freee 表示中の支払月/勤務月の差を維持して結果を検証します。navigator の曖昧さ、月不一致、従業員の重複、公式勤怠 link の欠落、table schema 変更では安全停止し、不完全なレビューを返しません。成功時は月次集計、一意に識別した日次勤怠表、日別 alert、ページ警告、申請詳細、統合自動チェックを返します。
+`monthly-approvals review --id` は正確な申請種別と `対象日` に整合する明示的な支払月を確認します。その支払月を freee 表示中の対応関係から勤務月へ写像し、勤怠モニターを対象勤務月へ移動して、申請者を表示中の一意なメンバーへ対応付け、公式従業員勤怠ページを開き、日次表を読む前に同じ支払月/勤務月の組み合わせを再確認します。対応関係が欠落または曖昧な場合は `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`、月不一致、従業員の重複、公式勤怠 link の欠落、table schema 変更では安全停止し、不完全なレビューを返しません。成功時は両期間、月次集計、一意に識別した日次勤怠表、日別 alert、ページ警告、申請詳細、統合自動チェックを返します。
 
-月次の管理者書き込み前には `monthly-approvals prepare-action --id NO --action approve|return` を使用します。fingerprint は完全な申請、月次集計、日次行、警告、チェック、要求操作を束縛します。ユーザーが新しい現在のメッセージで正確な preview を確認した場合だけ `monthly-approvals commit-action ... --confirm` を許可します。commit はレビューを再構築し、正確な申請を再度開き、1 回クリックして一般承認と同じ書き込み後検証を行います。一括操作は未対応で、この専用経路は実 freee 検証待ちです。
+月次の管理者書き込み前には `monthly-approvals prepare-action --id NO --action approve|return` を使用します。fingerprint は明示的な支払月、freee で検証した勤務月、完全な申請、月次集計、日次行、警告、チェック、要求操作を束縛します。ユーザーが新しい現在のメッセージで正確な preview を確認した場合だけ `monthly-approvals commit-action ... --confirm` を許可します。commit は対応関係を再導出してレビューを再構築し、正確な申請を再度開き、どちらかの月または束縛データが変わっていればクリック前に停止します。1 回クリックした後は一般承認と同じ書き込み後検証を行います。一括操作は未対応で、この専用経路は実 freee 検証待ちです。
 
 ## バックエンド選択
 

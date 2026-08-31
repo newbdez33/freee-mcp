@@ -85,7 +85,12 @@ function createFakeService() {
     },
     async getMonthlyApprovalReview(id) {
       calls.push(["monthly-approval-review", id]);
-      return { backend: "playwright", period: "2026-08", application: { application: { id } } };
+      return {
+        backend: "playwright",
+        paymentPeriod: "2026-09",
+        period: "2026-08",
+        application: { application: { id } },
+      };
     },
     async prepareMonthlyApprovalAction(id, action) {
       return { backend: "playwright", id, action, fingerprint: "1".repeat(64) };
@@ -172,6 +177,19 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action").annotations.destructiveHint,
       true,
+    );
+    assert.match(instructions, /displayed payment-month\/work-month relationship/);
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_monthly_approvals_list").description,
+      /paymentPeriod and mapped work period/,
+    );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_monthly_approval_prepare_action").description,
+      /Ambiguous mapping produces no fingerprint/,
+    );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action").description,
+      /stops before any click/,
     );
     assert.match(
       listed.tools.find((tool) => tool.name === "freee_approval_prepare_action").description,
@@ -326,6 +344,39 @@ test("MCP authentication status returns safe local Playwright setup guidance", a
     assert.equal(result.structuredContent.error.code, "WEB_CREDENTIALS_UNAVAILABLE");
     assert.match(result.structuredContent.error.details.setupCommand, /browser configure --confirm/);
     assert.equal(JSON.stringify(result).includes("password"), false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP returns a structured fail-closed monthly period mapping error", async () => {
+  const service = createFakeService();
+  service.getMonthlyApprovalReview = async () => {
+    throw new CliError(
+      "MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED",
+      "The payment month could not be mapped to one work month.",
+      {
+        details: {
+          paymentPeriods: ["2026-09"],
+          displayedContexts: [],
+        },
+        exitCode: 2,
+      },
+    );
+  };
+  const { client, server } = await connect(service);
+  try {
+    const result = await client.callTool({
+      name: "freee_monthly_approval_review",
+      arguments: { id: "9001" },
+    });
+    assert.equal(result.isError, true);
+    assert.equal(
+      result.structuredContent.error.code,
+      "MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED",
+    );
+    assert.deepEqual(result.structuredContent.error.details.paymentPeriods, ["2026-09"]);
   } finally {
     await client.close();
     await server.close();

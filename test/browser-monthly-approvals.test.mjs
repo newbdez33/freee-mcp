@@ -7,9 +7,11 @@ import {
   isMonthlyApproval,
   parseAttendancePeriodContext,
   parseMonthlyAttendanceTableSnapshot,
-  requireMonthlyApproval,
+  requireMonthlyApprovalPaymentPeriod,
+  resolveMonthlyApprovalPeriod,
   selectMonthlyApprovalMember,
   targetPaymentPeriodForWorkPeriod,
+  targetWorkPeriodForPaymentPeriod,
 } from "../dist/browser-monthly-approvals.js";
 
 function monthlyDetail() {
@@ -19,8 +21,8 @@ function monthlyDetail() {
       status: "未承認",
       applicant: "Member A",
       type: "月次勤怠締め",
-      targetDate: "2026/08/01",
-      content: "2026年8月勤務分",
+      targetDate: "2026/09/01",
+      content: "2026年09月の支払分",
       reason: null,
       appliedAt: "2026/09/01",
       currentApprover: "Manager B",
@@ -65,15 +67,12 @@ function member(overrides = {}) {
   };
 }
 
-test("monthly approval guards the exact application type and period", () => {
+test("monthly approval guards the exact application type and payment period", () => {
   const detail = monthlyDetail();
   assert.equal(isMonthlyApproval(detail.application), true);
-  assert.equal(requireMonthlyApproval(detail), "2026-08");
+  assert.equal(requireMonthlyApprovalPaymentPeriod(detail.application), "2026-09");
   assert.throws(
-    () => requireMonthlyApproval({
-      ...detail,
-      application: { ...detail.application, type: "休暇" },
-    }),
+    () => requireMonthlyApprovalPaymentPeriod({ ...detail.application, type: "休暇" }),
     (error) => error.code === "MONTHLY_APPROVAL_TYPE_MISMATCH",
   );
 });
@@ -91,6 +90,8 @@ test("attendance period navigation preserves the payment/work-month offset", () 
   );
   assert.equal(targetPaymentPeriodForWorkPeriod(current, "2026-07"), "2026-08");
   assert.equal(targetPaymentPeriodForWorkPeriod(current, "2025-12"), "2026-01");
+  assert.equal(targetWorkPeriodForPaymentPeriod(current, "2026-09"), "2026-08");
+  assert.equal(targetWorkPeriodForPaymentPeriod(current, "2026-01"), "2025-12");
   assert.throws(
     () => parseAttendancePeriodContext("2026年8月"),
     (error) => error.code === "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
@@ -102,6 +103,54 @@ test("attendance period navigation preserves the payment/work-month offset", () 
     ),
     (error) => error.code === "ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED",
   );
+});
+
+test("monthly approval maps next-month, same-month, and cross-year payment periods", () => {
+  const nextMonth = monthlyDetail().application;
+  assert.deepEqual(
+    resolveMonthlyApprovalPeriod(nextMonth, {
+      paymentPeriod: "2026-09",
+      workPeriod: "2026-08",
+    }),
+    { paymentPeriod: "2026-09", workPeriod: "2026-08" },
+  );
+
+  assert.deepEqual(
+    resolveMonthlyApprovalPeriod(nextMonth, {
+      paymentPeriod: "2026-08",
+      workPeriod: "2026-08",
+    }),
+    { paymentPeriod: "2026-09", workPeriod: "2026-09" },
+  );
+
+  assert.deepEqual(
+    resolveMonthlyApprovalPeriod({
+      ...nextMonth,
+      targetDate: "2026/01/01",
+      content: "2026年01月の支払分",
+    }, {
+      paymentPeriod: "2026-01",
+      workPeriod: "2025-12",
+    }),
+    { paymentPeriod: "2026-01", workPeriod: "2025-12" },
+  );
+});
+
+test("monthly approval period mapping fails closed when the payment month is missing or inconsistent", () => {
+  const application = monthlyDetail().application;
+  for (const candidate of [
+    { ...application, content: "2026年9月勤務分" },
+    { ...application, content: "2026年09月の支払分 2026年10月の支払分" },
+    { ...application, targetDate: "2026/10/01" },
+  ]) {
+    assert.throws(
+      () => resolveMonthlyApprovalPeriod(candidate, {
+        paymentPeriod: "2026-09",
+        workPeriod: "2026-08",
+      }),
+      (error) => error.code === "MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED",
+    );
+  }
 });
 
 test("monthly approval applicant maps to one exact attendance member", () => {
@@ -188,6 +237,7 @@ test("monthly approval fingerprint binds attendance and requested action", () =>
   }, "2026-08");
   const review = {
     application: detail,
+    paymentPeriod: "2026-09",
     period: "2026-08",
     attendanceSummary: member(),
     attendance,
@@ -206,5 +256,9 @@ test("monthly approval fingerprint binds attendance and requested action", () =>
           field.label === "退勤" ? { ...field, value: "19:00" } : field),
       })),
     },
+  }, "approve"));
+  assert.notEqual(approve, createMonthlyApprovalFingerprint({
+    ...review,
+    paymentPeriod: "2026-08",
   }, "approve"));
 });

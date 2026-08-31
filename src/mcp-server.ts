@@ -9,7 +9,7 @@ import { version } from "./version.js";
 export const mcpServerInstructions = [
   "General manager application actions may run individually or under one user-authorized policy. Before a policy run, restate its selection conditions, approve/return mapping, scope and termination, dependency order, and per-item error handling, then obtain one explicit confirmation. During that scope, scan every pending page, evaluate each full detail, prepare and commit matches sequentially, and match fingerprints on the user's behalf. No batch endpoint or per-item confirmation is required. Skip isolated nonmatches or ambiguous items and continue independent work. Never retry an unknown write.",
   "A general approval policy may cover one pass, repeated scans until no match remains, an explicit range or limit, or a configured recurring automation; it need not pre-enumerate application Nos. or fingerprints. A known pre-click preview error may be reread and prepared again under the same authorization. A leave blocker may be processed first when the policy authorizes it; otherwise skip the leave. Quarantine an unknown item and its dependent leave chain, but continue independent matches. Stop the whole run only when authorization expires or becomes unclear, backend or identity changes, pagination is untrustworthy, or another systemic failure makes continued decisions unsafe.",
-  "Use read tools when they match the user's request. For a 月次勤怠締め manager action, use the dedicated monthly approval review and prepare tools; never bypass them with the general approval commit. Never call a clock, monthly, personal-application, or monthly-approval commit tool unless the user's current message explicitly authorizes that one exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. The selected API or Playwright backend is exclusive; never fall back. Do not retry an unknown write.",
+  "Use read tools when they match the user's request. For a 月次勤怠締め manager action, use the dedicated monthly approval tools. Derive its work month from the application's explicit payment month and freee's displayed payment-month/work-month relationship; if either is ambiguous, stop without a review, fingerprint, or write. Never bypass this check with the general approval commit. Never call a clock, monthly, personal-application, or monthly-approval commit tool unless the user's current message explicitly authorizes that one exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. The selected API or Playwright backend is exclusive; never fall back. Do not retry an unknown write.",
   "Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, show the exact setupCommand returned in the error and instruct the user to run it directly in a local interactive terminal; never accept credentials in chat or MCP arguments.",
 ].join(" ");
 
@@ -327,7 +327,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_monthly_approvals_list", {
     title: "freee monthly attendance approval list",
-    description: "Read only 月次勤怠締め applications visible in the current account's approval workflow. Results are filtered from one explicit approval-list page.",
+    description: "Read only 月次勤怠締め applications from one explicit approval-list page. Each result exposes its explicit paymentPeriod and mapped work period, using freee's displayed payment-month/work-month relationship; ambiguous mapping fails closed.",
     inputSchema: {
       status: z.enum(["pending", "returned", "approved", "all"]).default("pending"),
       page: z.number().int().positive().default(1)
@@ -340,14 +340,14 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_monthly_approval_review", {
     title: "Review a freee monthly attendance application",
-    description: "Read one exact 月次勤怠締め application, its applicant's monthly attendance summary, daily attendance table, alerts, and automatic checks without changing freee.",
+    description: "Read one exact 月次勤怠締め application. Its explicit payment month is mapped through freee's displayed payment-month/work-month relationship, then that work month's summary, daily attendance, alerts, and automatic checks are verified. Ambiguous mapping stops without a review.",
     inputSchema: { id: approvalIdSchema },
     annotations: readOnlyAnnotations,
   }, async ({ id }) => executeTool(() => service.getMonthlyApprovalReview(id)));
 
   server.registerTool("freee_monthly_approval_prepare_action", {
     title: "Preview a freee monthly attendance approval action",
-    description: "Review one exact 月次勤怠締め application and bind its detail, monthly summary, daily attendance, alerts, automatic checks, and requested approval/return action into a fingerprint. No application is changed.",
+    description: "Review one exact 月次勤怠締め application and bind its explicit payment month, freee-verified work month, detail, monthly summary, daily attendance, alerts, automatic checks, and requested approval/return action into a fingerprint. Ambiguous mapping produces no fingerprint; no application is changed.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,
@@ -359,7 +359,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_monthly_approval_commit_action", {
     title: "Commit a freee monthly attendance approval action",
-    description: "Approve or return one real 月次勤怠締め application only after matching the complete monthly review and receiving explicit current-message approval. Never call directly or retry automatically.",
+    description: "Approve or return one real 月次勤怠締め application only after recomputing the same payment-month/work-month mapping and matching the complete monthly review and fingerprint. Ambiguous or changed mapping stops before any click. Explicit current-message approval is required; never call directly or retry automatically.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,

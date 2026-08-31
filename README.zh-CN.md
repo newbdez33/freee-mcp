@@ -51,7 +51,7 @@ claude plugin update freee@freee-tools --scope user
 Codex 使用 Skill installer 安装 `skills/freee`，并在用户级注册下面这个固定版本、可移植的 STDIO 命令：
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
 ```
 
 开头的安装提示会让 Codex 完成这两个步骤。如果新 Skill 没有立即被发现，请重启 Codex，然后通过 `/mcp` 验证 Server 连接。
@@ -61,7 +61,7 @@ codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' f
 通过客户端设置或 MCP 安装器，把下面命令注册为用户级 STDIO MCP：
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
 ```
 
 将本仓库的 `skills/freee` 安装到客户端的全局 Agent Skills 目录。OpenCode 识别 `~/.agents/skills/freee`；其他兼容 Agent Skills 的客户端可能使用不同的用户级目录。开头的安装提示会让当前 Agent 选择正确位置，不会创建项目文件。
@@ -185,10 +185,10 @@ Codex 配置保留 `default_tools_approval_mode = "writes"`，因此其他 commi
 | `freee_personal_application_prepare_withdraw` | 只读预览 | 为待处理本人申请生成撤回预览和指纹 |
 | `freee_personal_application_commit_withdraw` | 写入 | 重新校验并撤回待处理本人申请 |
 | `freee_approvals_list` | 只读 | 列出 pending、approved、returned 或全部申请 |
-| `freee_monthly_approvals_list` | 只读 | 从单页管理员申请中只列出 `月次勤怠締め` |
-| `freee_monthly_approval_review` | 只读 | 审阅单条月次申请及申请人的汇总、逐日考勤、警告和自动检查 |
-| `freee_monthly_approval_prepare_action` | 只读预览 | 将完整月次审阅和批准/差戻し操作绑定为指纹 |
-| `freee_monthly_approval_commit_action` | 写入 | 重新校验完整审阅并批准或差戻し单条月次申请 |
+| `freee_monthly_approvals_list` | 只读 | 列出 `月次勤怠締め` 及明确支付月和映射后的工作月 |
+| `freee_monthly_approval_review` | 只读 | 验证支付月/工作月并审阅汇总、逐日考勤、警告和自动检查 |
+| `freee_monthly_approval_prepare_action` | 只读预览 | 将两个期间及完整月次审阅/操作绑定为指纹 |
+| `freee_monthly_approval_commit_action` | 写入 | 重新推导两个期间、校验完整审阅并批准或差戻し |
 | `freee_approval_detail` | 只读 | 读取单条申请的完整详情，包括受支持勤務时间修正的修改前/后结构化对照 |
 | `freee_approval_prepare_action` | 只读预览 | 生成批准或差戻し预览和指纹 |
 | `freee_approval_commit_action` | 写入 | 重新校验指纹并批准或差戻し单条申请 |
@@ -307,11 +307,11 @@ commit 前 CLI 会重新读取详情。指纹不一致、按钮缺失、申请�
 
 ## 月次考勤审批审阅
 
-`monthly-approvals list` 从一页同步的管理员审批结果中筛选 `月次勤怠締め`。如需查看后续来源页，请使用 `pageCount`；`sourceTotalCount` 是类型筛选前总数，`applicationCount` 是当前页月次申请数量。
+`monthly-approvals list` 从一页同步的管理员审批结果中筛选 `月次勤怠締め`。它从 `2026年09月の支払分` 等文本解析唯一明确的支付月，根据 freee 页面显示的支付月/工作月关系推导工作月，并通过官方月份导航验证该组合，返回 `paymentPeriod` 和工作月 `period`。它不会把支付月或 `対象日` 当成工作月，也不会硬编码减一个月。如需查看后续来源页，请使用 `pageCount`；`sourceTotalCount` 是类型筛选前总数，`applicationCount` 是当前页月次申请数量。
 
-`monthly-approvals review --id` 先确认准确申请类型和勤務月，然后把考勤监控页导航到该勤務月，将申请人唯一映射为一名可见成员，打开其官方考勤页，并在读取逐日表格前再次验证同一勤務月。导航会保持 freee 显示的支付月/勤務月偏移并验证最终组合。导航有歧义、月份不一致、员工身份重复、缺少官方考勤链接或表格结构变化时会安全停止，不返回不完整审阅。成功结果包含月度汇总、唯一识别的逐日表、每日警告、页面警告、申请详情和统一自动检查。
+`monthly-approvals review --id` 先确认准确申请类型，以及与 `対象日` 一致的唯一明确支付月。它根据 freee 页面显示的对应关系映射工作月，将考勤监控页导航到该工作月，将申请人唯一映射为一名可见成员，打开其官方考勤页，并在读取逐日表格前再次验证同一支付月/工作月组合。对应关系缺失或有歧义时返回 `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`；月份不一致、员工身份重复、缺少官方考勤链接或表格结构变化时也会安全停止，不返回不完整审阅。成功结果包含两个期间、月度汇总、唯一识别的逐日表、每日警告、页面警告、申请详情和统一自动检查。
 
-月次管理员写操作前使用 `monthly-approvals prepare-action --id NO --action approve|return`。其指纹绑定完整申请、月度汇总、逐日记录、警告、检查和请求操作。只有用户在新的当前消息中确认该准确预览后，才允许 `monthly-approvals commit-action ... --confirm`。commit 会重建审阅、重新打开准确申请、点击一次，并执行与一般审批相同的写后验证。当前不支持批量操作，这条专用路径仍待真实 freee 验收。
+月次管理员写操作前使用 `monthly-approvals prepare-action --id NO --action approve|return`。其指纹绑定明确支付月、freee 验证的工作月、完整申请、月度汇总、逐日记录、警告、检查和请求操作。只有用户在新的当前消息中确认该准确预览后，才允许 `monthly-approvals commit-action ... --confirm`。commit 会重新推导映射、重建审阅并重新打开准确申请；任一月份或绑定数据变化都会在点击前停止。点击一次后执行与一般审批相同的写后验证。当前不支持批量操作，这条专用路径仍待真实 freee 验收。
 
 ## 后端选择
 

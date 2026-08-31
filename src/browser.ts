@@ -34,11 +34,14 @@ import {
   isMonthlyApproval,
   parseAttendancePeriodContext,
   parseMonthlyAttendanceTableSnapshot,
-  requireMonthlyApproval,
+  requireMonthlyApprovalPaymentPeriod,
+  resolveMonthlyApprovalPeriod,
   selectMonthlyApprovalMember,
   targetPaymentPeriodForWorkPeriod,
   type AttendancePeriodContext,
+  type BrowserMonthlyApprovalPeriodMapping,
   type BrowserMonthlyApprovalReview,
+  type BrowserMonthlyApprovalSummary,
   type MonthlyAttendanceTableSnapshot,
 } from "./browser-monthly-approvals.js";
 import {
@@ -1156,10 +1159,31 @@ export class FreeeBrowserClient {
     pageCount: number;
     sourceTotalCount: number;
     applicationCount: number;
-    applications: BrowserApprovalSummary[];
+    applications: BrowserMonthlyApprovalSummary[];
   }> {
     const approvals = await this.getApprovals(status, page);
-    const applications = approvals.applications.filter(isMonthlyApproval);
+    const monthlyApplications = approvals.applications.filter(isMonthlyApproval);
+    let applications: BrowserMonthlyApprovalSummary[] = [];
+    if (monthlyApplications.length > 0) {
+      await this.openAttendanceMonitor();
+      const displayedContext = await this.readMonthlyApprovalPeriodContext();
+      const mapped = monthlyApplications.map((application) => ({
+        application,
+        mapping: resolveMonthlyApprovalPeriod(application, displayedContext),
+      }));
+      const uniqueMappings = Array.from(new Map(mapped.map(({ mapping }) => [
+        `${mapping.paymentPeriod}:${mapping.workPeriod}`,
+        mapping,
+      ])).values());
+      for (const mapping of uniqueMappings) {
+        await this.verifyMonthlyApprovalPeriodMapping(mapping);
+      }
+      applications = mapped.map(({ application, mapping }) => ({
+        ...application,
+        paymentPeriod: mapping.paymentPeriod,
+        period: mapping.workPeriod,
+      }));
+    }
     return {
       filter: approvals.filter,
       page: approvals.page,
@@ -1172,13 +1196,17 @@ export class FreeeBrowserClient {
 
   async getMonthlyApprovalReview(id: string): Promise<BrowserMonthlyApprovalReview> {
     const application = await this.getApprovalDetail(id);
-    const period = requireMonthlyApproval(application);
     await this.openAttendanceMonitor();
-    await this.selectAttendanceWorkPeriod(period);
+    const mapping = resolveMonthlyApprovalPeriod(
+      application.application,
+      await this.readMonthlyApprovalPeriodContext(),
+    );
+    await this.verifyMonthlyApprovalPeriodMapping(mapping);
+    const period = mapping.workPeriod;
     const team = await this.readTeamStatus({ date: `${period}-01` });
     const attendanceSummary = selectMonthlyApprovalMember(application, team.members);
     await this.openMonthlyApplicantAttendance(application, attendanceSummary);
-    await this.selectAttendanceWorkPeriod(period);
+    await this.verifyMonthlyApprovalPeriodMapping(mapping);
     await this.selectAttendanceTableView();
     const attendance = parseMonthlyAttendanceTableSnapshot(
       await this.readMonthlyAttendanceTableSnapshot(),
@@ -1186,6 +1214,7 @@ export class FreeeBrowserClient {
     );
     return {
       application,
+      paymentPeriod: mapping.paymentPeriod,
       period,
       attendanceSummary,
       attendance,
@@ -1261,7 +1290,22 @@ export class FreeeBrowserClient {
       );
     }
     const actionDetail = await this.getApprovalDetail(id);
-    requireMonthlyApproval(actionDetail);
+    const actionPaymentPeriod = requireMonthlyApprovalPaymentPeriod(actionDetail.application);
+    if (actionPaymentPeriod !== review.paymentPeriod) {
+      throw new CliError(
+        "MONTHLY_APPROVAL_PREVIEW_CHANGED",
+        "The monthly application payment month changed while returning from attendance review. No action was taken; prepare a new preview.",
+        {
+          details: {
+            id,
+            action,
+            reviewedPaymentPeriod: review.paymentPeriod,
+            currentPaymentPeriod: actionPaymentPeriod,
+          },
+          exitCode: 2,
+        },
+      );
+    }
     if (JSON.stringify(actionDetail) !== JSON.stringify(review.application)) {
       throw new CliError(
         "MONTHLY_APPROVAL_PREVIEW_CHANGED",
@@ -1736,6 +1780,67 @@ export class FreeeBrowserClient {
     this.assertOfficialPage();
     const pageText = await this.page.locator("body").innerText();
     return parseAttendancePeriodContext(pageText);
+  }
+
+  private async readMonthlyApprovalPeriodContext(): Promise<AttendancePeriodContext> {
+    try {
+      return await this.readAttendancePeriodContext();
+    } catch (error) {
+      if (!(error instanceof CliError)) {
+        throw error;
+      }
+      throw new CliError(
+        "MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED",
+        "freee did not expose one reliable payment-month/work-month relationship. No monthly review, fingerprint, or action was produced.",
+        {
+          details: {
+            causeCode: error.code,
+            causeDetails: error.details ?? null,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+  }
+
+  private async verifyMonthlyApprovalPeriodMapping(
+    mapping: BrowserMonthlyApprovalPeriodMapping,
+  ): Promise<void> {
+    try {
+      await this.selectAttendanceWorkPeriod(mapping.workPeriod);
+      const displayed = await this.readAttendancePeriodContext();
+      if (displayed.paymentPeriod !== mapping.paymentPeriod
+          || displayed.workPeriod !== mapping.workPeriod) {
+        throw new CliError(
+          "MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED",
+          "freee did not verify the expected payment-month/work-month relationship. No monthly review, fingerprint, or action was produced.",
+          {
+            details: {
+              expected: mapping,
+              displayed,
+            },
+            exitCode: 2,
+          },
+        );
+      }
+    } catch (error) {
+      if (!(error instanceof CliError)
+          || error.code === "MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED") {
+        throw error;
+      }
+      throw new CliError(
+        "MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED",
+        "freee could not navigate to and verify the monthly application's payment-month/work-month relationship. No monthly review, fingerprint, or action was produced.",
+        {
+          details: {
+            expected: mapping,
+            causeCode: error.code,
+            causeDetails: error.details ?? null,
+          },
+          exitCode: 2,
+        },
+      );
+    }
   }
 
   private async selectAttendancePaymentPeriod(targetPaymentPeriod: string): Promise<void> {

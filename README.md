@@ -51,7 +51,7 @@ Plugin releases use semantic versions. Maintainers must bump `package.json` and 
 Codex installs `skills/freee` with its Skill installer and registers this pinned, portable STDIO command at user scope:
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
 ```
 
 The opening installation prompt asks Codex to perform both steps. Restart Codex if the newly installed Skill is not discovered immediately, then use `/mcp` to verify the server connection.
@@ -61,7 +61,7 @@ The opening installation prompt asks Codex to perform both steps. Restart Codex 
 Register this as a user-level STDIO MCP command using the client's settings or MCP installer:
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.4.3' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
 ```
 
 Install `skills/freee` from this repository in the client's global Agent Skills location. OpenCode recognizes `~/.agents/skills/freee`; other Agent Skills-compatible clients may use a different user-level directory. The opening installation prompt lets the running agent select the correct location without creating project files.
@@ -185,10 +185,10 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_personal_application_prepare_withdraw` | Read-only preview | Generate a withdrawal preview and fingerprint for one pending application |
 | `freee_personal_application_commit_withdraw` | Write | Revalidate and withdraw one pending personal application |
 | `freee_approvals_list` | Read-only | List pending, approved, returned, or all applications |
-| `freee_monthly_approvals_list` | Read-only | List only 月次勤怠締め applications from one manager approval page |
-| `freee_monthly_approval_review` | Read-only | Review one monthly application with the applicant's summary, daily attendance, alerts, and automatic checks |
-| `freee_monthly_approval_prepare_action` | Read-only preview | Bind a complete monthly review and approval or return action into a fingerprint |
-| `freee_monthly_approval_commit_action` | Write | Revalidate the complete monthly review and approve or return one application |
+| `freee_monthly_approvals_list` | Read-only | List 月次勤怠締め applications with explicit payment and mapped work periods |
+| `freee_monthly_approval_review` | Read-only | Verify payment/work periods and review the applicant's summary, daily attendance, alerts, and checks |
+| `freee_monthly_approval_prepare_action` | Read-only preview | Bind both periods and the complete monthly review/action into a fingerprint |
+| `freee_monthly_approval_commit_action` | Write | Rederive both periods, revalidate the complete review, and approve or return one application |
 | `freee_approval_detail` | Read-only | Read one application's full details, including structured before/after values for supported work-time corrections |
 | `freee_approval_prepare_action` | Read-only preview | Generate an approval or return preview and fingerprint |
 | `freee_approval_commit_action` | Write | Revalidate the fingerprint and approve or return one application |
@@ -307,11 +307,11 @@ Before committing, the CLI rereads the detail. A fingerprint mismatch, missing b
 
 ## Monthly attendance approval review
 
-`monthly-approvals list` filters one synchronized manager approval page to `月次勤怠締め` applications. Use its `pageCount` to inspect later source pages; `sourceTotalCount` is the complete count before type filtering, while `applicationCount` is the monthly count on the returned page.
+`monthly-approvals list` filters one synchronized manager approval page to `月次勤怠締め` applications. It parses one explicit payment month from text such as `2026年09月の支払分`, derives the work month from freee's displayed payment-month/work-month relationship, verifies that pair with the official navigator, and returns both `paymentPeriod` and work `period`. It never treats the payment month or `対象日` as the work month and never hardcodes a one-month subtraction. Use `pageCount` to inspect later source pages; `sourceTotalCount` is the complete count before type filtering, while `applicationCount` is the monthly count on the returned page.
 
-`monthly-approvals review --id` first verifies the exact application type and work month. It then navigates the attendance monitor to that work month, maps the applicant to one unique visible member, opens the employee's official attendance page, and verifies the same work month again before reading the daily table. Navigation preserves freee's displayed payment-month/work-month offset and validates the resulting pair. An ambiguous navigator, a navigation mismatch, duplicate employee identity, missing attendance link, or changed table schema stops safely instead of returning a partial review. A successful review returns the monthly summary, one uniquely identified daily attendance table, per-day alerts, page warnings, application detail, and consolidated automatic checks.
+`monthly-approvals review --id` verifies the exact application type and one explicit payment month consistent with `対象日`. It maps that payment month through freee's displayed relationship, navigates the attendance monitor to the resulting work month, maps the applicant to one unique visible member, opens the employee's official attendance page, and verifies the same payment/work pair again before reading the daily table. A missing or ambiguous mapping returns `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`; a navigation mismatch, duplicate employee identity, missing attendance link, or changed table schema also stops safely instead of returning a partial review. A successful review returns both periods, the monthly summary, one uniquely identified daily attendance table, per-day alerts, page warnings, application detail, and consolidated automatic checks.
 
-Use `monthly-approvals prepare-action --id NO --action approve|return` before a monthly manager write. Its fingerprint binds the full application, monthly summary, daily rows, alerts, checks, and requested action. Only a new current-message confirmation of that exact preview permits `monthly-approvals commit-action ... --confirm`. The commit reconstructs the review, reopens the exact application, clicks once, and applies the same post-write verification as the general approval workflow. Batch actions are not supported, and this specialized path remains pending real freee validation.
+Use `monthly-approvals prepare-action --id NO --action approve|return` before a monthly manager write. Its fingerprint binds the explicit payment month, freee-verified work month, full application, monthly summary, daily rows, alerts, checks, and requested action. Only a new current-message confirmation of that exact preview permits `monthly-approvals commit-action ... --confirm`. The commit rederives the mapping, reconstructs the review, reopens the exact application, and stops before clicking if either month or any bound data changed. After one click, it applies the same post-write verification as the general approval workflow. Batch actions are not supported, and this specialized path remains pending real freee validation.
 
 ## Backend selection
 

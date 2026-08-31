@@ -26,10 +26,10 @@ Prefer these tools for business operations when the host has loaded the installe
 | Personal withdrawal preview | `freee_personal_application_prepare_withdraw` | Read-only; returns fingerprint |
 | Personal withdrawal execution | `freee_personal_application_commit_withdraw` | Real write; exact preview, current-message approval, and `confirm: true` required |
 | Application list | `freee_approvals_list` | Read-only; defaults to pending |
-| Monthly approval list | `freee_monthly_approvals_list` | Read-only; filters one source page to 月次勤怠締め |
-| Monthly approval review | `freee_monthly_approval_review` | Read-only; includes exact member summary, daily attendance, alerts, and checks |
-| Monthly approval/return preview | `freee_monthly_approval_prepare_action` | Read-only; binds the complete monthly review into a fingerprint |
-| Monthly approval/return execution | `freee_monthly_approval_commit_action` | Real write; exact review, current-message approval, and `confirm: true` required |
+| Monthly approval list | `freee_monthly_approvals_list` | Read-only; filters one source page to 月次勤怠締め and returns explicit payment/work periods |
+| Monthly approval review | `freee_monthly_approval_review` | Read-only; verifies the payment/work mapping, exact member summary, daily attendance, alerts, and checks |
+| Monthly approval/return preview | `freee_monthly_approval_prepare_action` | Read-only; binds both mapped periods and the complete monthly review into a fingerprint |
+| Monthly approval/return execution | `freee_monthly_approval_commit_action` | Real write; rechecks the mapping and exact review; current-message approval and `confirm: true` required |
 | Application detail | `freee_approval_detail` | Read-only |
 | Approval/return preview | `freee_approval_prepare_action` | Read-only; returns fingerprint |
 | Approval/return execution | `freee_approval_commit_action` | Real single-item write; exact individual confirmation or an active confirmed policy run, matching fingerprint, and `confirm: true` required |
@@ -219,9 +219,9 @@ npm run freee -- monthly-approvals prepare-action \
   --id APPLICATION_NO --action approve|return
 ```
 
-The list filters each synchronized source approval page to monthly closing applications. Follow `pageCount` when more source pages exist; `sourceTotalCount` is the unfiltered source count, and `applicationCount` is the monthly count on that page.
+The list filters each synchronized source approval page to monthly closing applications. For every result, it parses one explicit payment month from application text such as `2026年09月の支払分`, reads freee's displayed payment-month/work-month relationship, verifies the resulting pair through the official navigator, and returns `paymentPeriod` plus work `period`. It never treats `対象日` or the payment month as the work month and never hardcodes a one-month subtraction. Follow `pageCount` when more source pages exist; `sourceTotalCount` is the unfiltered source count, and `applicationCount` is the monthly count on that page.
 
-The review requires the application type to be exactly `月次勤怠締め` or `月次勤怠締め申請` and its target to identify one work month. It selects and verifies that work month on the attendance monitor, maps the applicant and department to one unique visible member, opens the official employee attendance link, verifies the same work month again, and parses one unique daily attendance table. It returns the application detail, member monthly summary, every daily row, per-day alerts, page warnings, and consolidated automatic checks. Ambiguous or failed period navigation, a duplicate member, a missing official link, or an ambiguous table stops without a write.
+The review requires the application type to be exactly `月次勤怠締め` or `月次勤怠締め申請` and the application content to identify one payment month consistent with its `対象日`. It derives the work month from freee's currently displayed payment/work pair, then selects and verifies the exact target pair on the attendance monitor, maps the applicant and department to one unique visible member, opens the official employee attendance link, verifies the same pair again, and parses one unique daily attendance table. It returns `paymentPeriod`, work `period`, application detail, member monthly summary, every daily row, per-day alerts, page warnings, and consolidated automatic checks. `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`, ambiguous or failed period navigation, a duplicate member, a missing official link, or an ambiguous table stops without a review fingerprint or write.
 
 The prepare fingerprint binds the entire review and requested action. Only after the current user message explicitly approves that exact preview, commit once:
 
@@ -231,7 +231,7 @@ npm run freee -- monthly-approvals commit-action \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-Commit reconstructs the complete review, reopens the exact application, requires unchanged detail and action availability, clicks one `承認` or `申請者へ差し戻す` button, and verifies `承認済` or `差戻し`. Never use the general approval commit to bypass a monthly review failure. Never retry an unknown result. Batch monthly actions are not implemented.
+Commit reconstructs the complete review, including the same explicit payment month and freee-verified work month, reopens the exact application, requires unchanged detail and action availability, clicks one `承認` or `申請者へ差し戻す` button, and verifies `承認済` or `差戻し`. A changed or ambiguous mapping stops before the click. Never use the general approval commit to bypass a monthly review failure. Never retry an unknown result. Batch monthly actions are not implemented.
 
 ## Employee application actions
 
@@ -357,6 +357,7 @@ Important error codes:
 - `ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED`: freee did not expose one unambiguous payment-month/work-month label or official year/month navigator; stop without reading or writing another month.
 - `ATTENDANCE_PERIOD_NAVIGATION_UNSUPPORTED`: the requested month is outside the bounded navigation range; stop rather than clicking an unbounded number of times.
 - `ATTENDANCE_PERIOD_NAVIGATION_FAILED`: freee did not reach and verify the requested work month; stop without returning data from the displayed month.
+- `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`: a manager monthly application did not expose one explicit payment month consistent with `対象日`, or freee did not expose and verify one payment-month/work-month relationship. No review fingerprint or action is allowed; never substitute the payment month or a fixed offset.
 - `BROWSER_MONTHLY_PERIOD_UNSUPPORTED`: the final monthly snapshot still did not match the requested work month; stop without continuing against another period.
 - `MONTHLY_ACTION_UNAVAILABLE`: report the current monthly state and available actions; do not substitute another write.
 - `MONTHLY_PREVIEW_CHANGED`: no action occurred. Prepare again, present the new preview, and obtain new explicit approval.

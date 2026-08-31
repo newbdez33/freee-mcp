@@ -21,6 +21,16 @@ export interface AttendancePeriodContext {
   paymentPeriod: string;
 }
 
+export interface BrowserMonthlyApprovalPeriodMapping {
+  paymentPeriod: string;
+  workPeriod: string;
+}
+
+export interface BrowserMonthlyApprovalSummary extends BrowserApprovalSummary {
+  paymentPeriod: string;
+  period: string;
+}
+
 export interface BrowserMonthlyAttendanceDay {
   date: string;
   fields: Array<{ label: string; value: string }>;
@@ -39,6 +49,7 @@ export interface BrowserMonthlyAttendanceReview {
 
 export interface BrowserMonthlyApprovalReview {
   application: BrowserApprovalDetail;
+  paymentPeriod: string;
   period: string;
   attendanceSummary: BrowserTeamMemberStatus;
   attendance: BrowserMonthlyAttendanceReview;
@@ -85,32 +96,70 @@ export function targetPaymentPeriodForWorkPeriod(
   return periodFromIndex(currentPaymentIndex + targetWorkIndex - currentWorkIndex);
 }
 
-export function requireMonthlyApproval(detail: BrowserApprovalDetail): string {
-  if (!isMonthlyApproval(detail.application)) {
+export function targetWorkPeriodForPaymentPeriod(
+  current: AttendancePeriodContext,
+  targetPaymentPeriod: string,
+): string {
+  const currentWorkIndex = periodIndex(current.workPeriod);
+  const currentPaymentIndex = periodIndex(current.paymentPeriod);
+  const targetPaymentIndex = periodIndex(targetPaymentPeriod);
+  return periodFromIndex(currentWorkIndex + targetPaymentIndex - currentPaymentIndex);
+}
+
+export function resolveMonthlyApprovalPeriod(
+  application: BrowserApprovalSummary,
+  displayedContext: AttendancePeriodContext,
+): BrowserMonthlyApprovalPeriodMapping {
+  const paymentPeriod = requireMonthlyApprovalPaymentPeriod(application);
+  return {
+    paymentPeriod,
+    workPeriod: targetWorkPeriodForPaymentPeriod(displayedContext, paymentPeriod),
+  };
+}
+
+export function requireMonthlyApprovalPaymentPeriod(
+  application: BrowserApprovalSummary,
+): string {
+  if (!isMonthlyApproval(application)) {
     throw new CliError(
       "MONTHLY_APPROVAL_TYPE_MISMATCH",
       "The requested application is not a supported monthly attendance closing application.",
       {
-        details: { id: detail.application.id, type: detail.application.type },
+        details: { id: application.id, type: application.type },
         exitCode: 2,
       },
     );
   }
-  const match = detail.application.targetDate?.match(/^(20\d{2})\/(\d{2})\/01$/);
-  if (!match) {
+
+  const paymentPeriods = Array.from(new Set(Array.from(
+    application.content?.matchAll(
+      /(20\d{2})年(0?[1-9]|1[0-2])月(?:の)?支払(?:い)?分/g,
+    ) ?? [],
+    (match) => normalizePeriod(Number(match[1]), Number(match[2])),
+  )));
+  const targetDateMatch = application.targetDate?.match(/^(20\d{2})\/(0[1-9]|1[0-2])\/01$/);
+  const targetDatePeriod = targetDateMatch
+    ? normalizePeriod(Number(targetDateMatch[1]), Number(targetDateMatch[2]))
+    : null;
+  if (paymentPeriods.length !== 1
+      || !paymentPeriods[0]
+      || (application.targetDate !== null && targetDatePeriod === null)
+      || (targetDatePeriod !== null && targetDatePeriod !== paymentPeriods[0])) {
     throw new CliError(
-      "MONTHLY_APPROVAL_PERIOD_UNEXPECTED",
-      "The monthly attendance application did not expose one supported work month.",
+      "MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED",
+      "The monthly attendance application did not expose one reliable payment month that could be mapped to a work month. No review, fingerprint, or action was produced.",
       {
         details: {
-          id: detail.application.id,
-          targetDate: detail.application.targetDate,
+          id: application.id,
+          targetDate: application.targetDate,
+          targetDatePeriod,
+          paymentPeriods,
         },
         exitCode: 2,
       },
     );
   }
-  return `${match[1]}-${match[2]}`;
+  return paymentPeriods[0];
 }
 
 export function selectMonthlyApprovalMember(
@@ -226,7 +275,7 @@ export function createMonthlyApprovalFingerprint(
   action: BrowserApprovalAction,
 ): string {
   return createHash("sha256")
-    .update(JSON.stringify({ version: 1, action, review }))
+    .update(JSON.stringify({ version: 2, action, review }))
     .digest("hex");
 }
 

@@ -40,12 +40,16 @@ test("Claude plugin bundles the MCP and Skill without a project working director
   assert.match(skill, /repeated scans until no matching item remains/);
   assert.match(skill, /semantic judgment to full detail/);
   assert.match(skill, /`APPROVAL_PREVIEW_CHANGED` explicitly means no business action occurred/);
+  assert.match(skill, /MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED/);
+  assert.match(skill, /Never substitute a fixed one-month offset/);
   assert.match(skill, /LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION/);
   assert.doesNotMatch(skill, /Do not delete, batch-approve, or batch-change anything/);
   assert.match(commands, /There is no batch approval command/);
   assert.match(commands, /general `approve` and `return` actions/);
   assert.match(commands, /fixed candidate snapshot, full No\. enumeration, and precomputed fingerprints are not required/);
   assert.match(commands, /independent matches may continue/);
+  assert.match(commands, /returns `paymentPeriod` plus work `period`/);
+  assert.match(commands, /never hardcodes a one-month subtraction/);
   assert.match(codexConfig, /default_tools_approval_mode = "writes"/);
   assert.match(codexConfig, /\[mcp_servers\.freee\.tools\.freee_approval_commit_action\]\napproval_mode = "approve"/);
 });

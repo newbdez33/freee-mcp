@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createApprovalFingerprint,
+  findBlockingPendingWorkTimeCorrections,
   parseApprovalPageInfo,
   parseApprovalListSnapshot,
   parseApprovalWorkTimeChange,
@@ -19,6 +20,22 @@ const headers = [
   "現在の承認者",
   "チェック結果",
 ];
+
+function approvalSummary(overrides = {}) {
+  return {
+    id: "7000",
+    status: "未承認",
+    applicant: "Applicant A",
+    type: "勤務時間修正",
+    targetDate: "2026/08/20",
+    content: "09:00 - 18:00",
+    reason: null,
+    appliedAt: "2026/08/19",
+    currentApprover: "Approver A",
+    checkResult: null,
+    ...overrides,
+  };
+}
 
 test("approval list parser maps the supported freee table schema", () => {
   const result = parseApprovalListSnapshot({
@@ -183,6 +200,28 @@ test("approval detail parser exposes changed and removed work-time values", () =
     { type: "休暇" },
     [{ headers: ["項目名", "内容"], rows: [["勤務時間", "未入力"]] }],
   ), null);
+});
+
+test("leave dependency matcher finds only exact pending same-applicant same-date corrections", () => {
+  const leave = approvalSummary({
+    id: "7100",
+    type: "休暇",
+    content: "有休 全休",
+  });
+  const applications = [
+    approvalSummary({ id: "7101", workTimeChange: null }),
+    approvalSummary({ id: "7102", status: "申請中", content: "勤務時間を削除", workTimeChange: null }),
+    approvalSummary({ id: "7103", applicant: "Applicant A (proxy)" }),
+    approvalSummary({ id: "7104", targetDate: "2026/08/21" }),
+    approvalSummary({ id: "7105", status: "承認済" }),
+    approvalSummary({ id: "7106", status: "差戻し" }),
+    approvalSummary({ id: "7107", type: "休暇" }),
+  ];
+
+  assert.deepEqual(
+    findBlockingPendingWorkTimeCorrections(leave, applications).map(({ id }) => id),
+    ["7101", "7102"],
+  );
 });
 
 test("approval list parser stops on a changed schema or invalid application No.", () => {

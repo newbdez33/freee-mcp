@@ -383,7 +383,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_approval_prepare_action", {
     title: "Preview a freee application action",
-    description: "Read and preview one available approval or return action, including any structured 勤務時間修正 before/after comparison, and return a binding fingerprint. No application is changed.",
+    description: "Read and preview one available approval or return action, including any structured 勤務時間修正 before/after comparison, and return a binding fingerprint. Before approving a 休暇 application, every pending approval-list page is checked for same-applicant, same-date 勤務時間修正 applications; a blocker or an unreliable applicant/date stops without a fingerprint. No application is changed.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,
@@ -393,7 +393,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_approval_commit_action", {
     title: "Commit a freee application action",
-    description: "Change one real application only after matching preview and explicit current-message approval. Never call directly or retry automatically.",
+    description: "Change one real application only after matching preview and explicit current-message approval. A 休暇 approval repeats the complete pending 勤務時間修正 dependency check, then reopens the exact target and revalidates its detail, action, and fingerprint before any click. Never call directly or retry automatically.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,

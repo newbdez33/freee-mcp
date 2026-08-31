@@ -500,6 +500,7 @@ function parsePersonalApplicationCreateOptions(
         kind: { type: "string" },
         date: { type: "string" },
         reason: { type: "string" },
+        "work-time-action": { type: "string" },
         "leave-type": { type: "string" },
         "leave-start": { type: "string" },
         "leave-end": { type: "string" },
@@ -536,6 +537,16 @@ function parsePersonalApplicationCreateOptions(
       { exitCode: 2 },
     );
   }
+  const workTimeAction = parsed.values["work-time-action"];
+  if (workTimeAction !== undefined
+      && workTimeAction !== "replace"
+      && workTimeAction !== "delete") {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_WORK_TIME_ACTION",
+      "`--work-time-action` must be replace or delete.",
+      { exitCode: 2 },
+    );
+  }
   for (const name of [
     "leave-start",
     "leave-end",
@@ -565,6 +576,9 @@ function parsePersonalApplicationCreateOptions(
     kind,
     date,
     ...(typeof parsed.values.reason === "string" ? { reason: parsed.values.reason } : {}),
+    ...(workTimeAction === "replace" || workTimeAction === "delete"
+      ? { workTimeAction }
+      : {}),
     ...(typeof parsed.values["leave-type"] === "string"
       ? { leaveType: parsed.values["leave-type"] }
       : {}),
@@ -1017,6 +1031,7 @@ function printHelp(): void {
   process.stdout.write("  freee-agent requests detail --id NO\n");
   process.stdout.write("  freee-agent requests prepare-create --kind leave|work-time-correction --date YYYY-MM-DD [fields]\n");
   process.stdout.write("  freee-agent requests commit-create --kind KIND --date YYYY-MM-DD [fields] --fingerprint SHA256 --confirm\n");
+  process.stdout.write("    work-time-correction: [--work-time-action replace|delete]; replace requires --clock-in/--clock-out\n");
   process.stdout.write("  freee-agent requests prepare-cancel --id NO [--reason REASON]\n");
   process.stdout.write("  freee-agent requests commit-cancel --id NO [--reason REASON] --fingerprint SHA256 --confirm\n");
   process.stdout.write("  freee-agent requests prepare-withdraw --id NO\n");

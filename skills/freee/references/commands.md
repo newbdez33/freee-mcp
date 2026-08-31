@@ -19,8 +19,8 @@ Prefer these tools for business operations when the host has loaded the installe
 | Personal application capabilities | `freee_personal_application_options` | Read-only; include a date to read exact leave types |
 | Current employee application list | `freee_personal_applications_list` | Read-only; defaults to pending |
 | Current employee application detail | `freee_personal_application_detail` | Read-only; reports pending withdrawal and approved cancellation availability |
-| Leave/correction creation preview | `freee_personal_application_prepare_create` | Read-only form validation; returns fingerprint |
-| Leave/correction submission | `freee_personal_application_commit_create` | Real write; exact preview, current-message approval, and `confirm: true` required |
+| Leave/correction creation preview | `freee_personal_application_prepare_create` | Read-only form validation; `work_time_action=delete` selects exact `勤務時間を削除`; returns fingerprint |
+| Leave/correction submission | `freee_personal_application_commit_create` | Real application write; exact preview, current-message approval, and `confirm: true` required; deletion is an approval request, not a raw-record delete |
 | Approved-application cancellation preview | `freee_personal_application_prepare_cancel` | Read-only form validation; binds the original application and returns a fingerprint |
 | Approved-application cancellation submission | `freee_personal_application_commit_cancel` | Real write; creates a new cancellation request after exact preview and current-message approval |
 | Personal withdrawal preview | `freee_personal_application_prepare_withdraw` | Read-only; returns fingerprint |
@@ -151,7 +151,7 @@ Start with the enabled application types. Include a date when creating leave so 
 npm run freee -- requests options [--date YYYY-MM-DD]
 ```
 
-This version safely supports `leave` and `work-time-correction`. It accepts one work segment and one optional complete break pair. The tested company does not enable `残業`; overtime remains unsupported until an enabled form can be inspected and tested. Never use a hidden route or guess its fields.
+This version safely supports `leave` and `work-time-correction`. A replacement correction accepts one work segment and one optional complete break pair. A deletion correction uses `work_time_action=delete`, forbids every clock and break field, and selects only the exact `勤務時間を削除` form option. It creates a `勤務時間修正` application for approval; it is not a direct API deletion of the day's raw work record. The tested company does not enable `残業`; overtime remains unsupported until an enabled form can be inspected and tested. Never use a hidden route or guess its fields.
 
 Read the current employee's application workflow with:
 
@@ -181,7 +181,24 @@ npm run freee -- requests prepare-create \
   [--break-start HH:MM --break-end HH:MM] [--reason "REASON"]
 ```
 
-The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. When the selected leave type exposes a time range, both `--leave-start` and `--leave-end` are required and are bound into the preview; default `00:00` values are never accepted. Only after the current user message approves that exact preview, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`.
+Prepare deletion of the registered work time for one exact date without submitting:
+
+```bash
+npm run freee -- requests prepare-create \
+  --kind work-time-correction --date YYYY-MM-DD \
+  --work-time-action delete [--reason "REASON"]
+```
+
+The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. For deletion, it requires exactly one visible, enabled radio or checkbox named `勤務時間を削除`, selects it, and binds `workTimeAction: "delete"` into the preview. Missing, disabled, or ambiguous controls stop without submission. When the selected leave type exposes a time range, both `--leave-start` and `--leave-end` are required and are bound into the preview; default `00:00` values are never accepted. Only after the current user message approves that exact preview, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`.
+
+```bash
+npm run freee -- requests commit-create \
+  --kind work-time-correction --date YYYY-MM-DD \
+  --work-time-action delete [--reason "REASON"] \
+  --fingerprint PREVIEW_SHA256 --confirm
+```
+
+Deletion commit prepares the same form again, checks immediately before the click that `勤務時間を削除` is still selected, and then verifies exactly one new same-date `勤務時間修正` application whose content is exactly `勤務時間を削除`. The registered work time changes only through freee's approval workflow. A mismatched or incomplete result is unknown and must never be retried automatically.
 
 Prepare and commit cancellation of an approved application separately:
 
@@ -367,6 +384,8 @@ Important error codes:
 - `PERSONAL_APPLICATION_NOT_FOUND`: the numeric application No. was absent after every employee-side page was read; do not substitute a similar item.
 - `PERSONAL_APPLICATION_TYPE_UNAVAILABLE`: the company or employee does not enable that application type; stop and report the options result.
 - `PERSONAL_APPLICATION_TYPE_UNSUPPORTED`: the form has not been verified safely in this MCP version; do not navigate to hidden routes or guess fields.
+- `INVALID_PERSONAL_APPLICATION_WORK_TIME_ACTION`: use only `replace` or `delete`; `delete` is valid only for a work-time correction and must omit every clock and break field.
+- `PERSONAL_APPLICATION_WORK_TIME_DELETE_UNAVAILABLE`: the exact `勤務時間を削除` option was hidden, disabled, or did not remain selected. No application was submitted; do not broaden the selector or substitute a raw-record delete.
 - `PERSONAL_APPLICATION_LEAVE_TYPE_UNAVAILABLE`: rerun options with the same date and use one exact returned label.
 - `PERSONAL_APPLICATION_PREVIEW_CHANGED`: no action occurred. Prepare again, present the new preview, and obtain new explicit approval.
 - `PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN`: do not retry. Read the personal application list/detail and inspect freee before considering another write, including both the original and any new cancellation application.
@@ -389,7 +408,7 @@ Important error codes:
 
 ## Current scope
 
-Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw and verified work-month navigation; synchronized employee-side personal application list/detail plus fingerprint-bound leave/work-time-correction creation, approved-application cancellation, and pending withdrawal; Playwright monthly department attendance-monitor summaries; synchronized paginated manager-side application list/detail plus fingerprint-bound single-item approval/return; and dedicated monthly closing review/approval/return with verified navigation to the applicant's work month.
+Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw and verified work-month navigation; synchronized employee-side personal application list/detail plus fingerprint-bound leave/work-time-correction creation (including exact `勤務時間を削除` requests), approved-application cancellation, and pending withdrawal; Playwright monthly department attendance-monitor summaries; synchronized paginated manager-side application list/detail plus fingerprint-bound single-item approval/return; and dedicated monthly closing review/approval/return with verified navigation to the applicant's work month.
 
 Implemented but unavailable to the current API role: API-backed direct department member daily punch status. Do not fall back.
 

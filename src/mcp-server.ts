@@ -9,7 +9,7 @@ import { version } from "./version.js";
 export const mcpServerInstructions = [
   "Manager approvals support user-authorized condition-based batch automation for both general employee applications and dedicated 月次勤怠締め applications. Before a batch run, restate its selection conditions, approve/return mapping, scope and termination, dependency order, and per-item error handling, then obtain one explicit confirmation. The Agent executes the batch internally through sequential single-item prepare, commit, and post-write verification calls and matches every fingerprint on the user's behalf; no per-item confirmation is required. Skip isolated nonmatches or ambiguous items and continue independent work. Never retry an unknown write.",
   "A manager-approval policy may cover one pass, repeated scans until no match remains, an explicit range or limit, or a configured recurring automation; it need not pre-enumerate application Nos. or fingerprints. Scan every pending source page on each pass. Use the general approval tools for general applications and the dedicated monthly list, review, prepare, and commit tools for 月次勤怠締め. A known pre-click preview error may be reread and prepared again under the same authorization. A leave blocker may be processed first when the policy authorizes it; otherwise skip the leave. Quarantine an unknown item and its dependent leave chain, but continue independent matches. Stop the whole run only when authorization expires or becomes unclear, backend or identity changes, pagination is untrustworthy, or another systemic failure makes continued decisions unsafe.",
-  "Use read tools when they match the user's request. For a 月次勤怠締め manager action, derive its work month from the application's explicit payment month and freee's displayed payment-month/work-month relationship; if either is ambiguous, stop without a review, fingerprint, or write. Never bypass this check with the general approval commit. A manager approval commit requires explicit authorization for either that exact item or a still-active confirmed manager-approval policy. Clock, personal monthly, and personal-application commits still require exact current-message authorization after their matching preview. Always prepare first and pass the unchanged fingerprint. The selected API or Playwright backend is exclusive; never fall back. Do not retry an unknown write.",
+  "Use read tools when they match the user's request. For a 月次勤怠締め manager action, derive its work month from the application's explicit payment month and freee's displayed payment-month/work-month relationship; if either is ambiguous, stop without a review, fingerprint, or write. Never bypass this check with the general approval commit. For deletion of the current employee's registered work time, use a work-time-correction personal application with work_time_action=delete; this selects the exact 勤務時間を削除 option and creates an approval request rather than directly deleting a raw record. A manager approval commit requires explicit authorization for either that exact item or a still-active confirmed manager-approval policy. Clock, personal monthly, and personal-application commits still require exact current-message authorization after their matching preview. Always prepare first and pass the unchanged fingerprint. The selected API or Playwright backend is exclusive; never fall back. Do not retry an unknown write.",
   "Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, show the exact setupCommand returned in the error and instruct the user to run it directly in a local interactive terminal; never accept credentials in chat or MCP arguments.",
 ].join(" ");
 
@@ -36,6 +36,8 @@ const personalApplicationReasonSchema = z.string().max(1_000).optional()
   .describe("Optional application reason. Empty is allowed when freee allows it.");
 const personalApplicationTimeSchema = z.string().regex(/^\d{2}:\d{2}$/).optional()
   .describe("Optional local time in HH:MM. Required clock fields depend on kind.");
+const personalApplicationWorkTimeActionSchema = z.enum(["replace", "delete"]).optional()
+  .describe("Only for work-time-correction. Omit or use replace to change times; delete selects the exact 勤務時間を削除 option and forbids all clock/break fields.");
 
 const readOnlyAnnotations = {
   readOnlyHint: true,
@@ -207,17 +209,18 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_personal_application_prepare_create", {
     title: "Preview a freee personal application",
-    description: "Fill and validate one leave or work-time correction form without submitting it, returning the route, exact values, and a binding fingerprint.",
+    description: "Fill and validate one leave or work-time correction form without submitting it, returning the route, exact values, and a binding fingerprint. For work_time_action=delete, select exactly 勤務時間を削除; this previews a correction request, not a direct raw-record deletion.",
     inputSchema: {
       kind: personalApplicationKindSchema,
       date: personalApplicationDateSchema,
       reason: personalApplicationReasonSchema,
+      work_time_action: personalApplicationWorkTimeActionSchema,
       leave_type: z.string().min(1).max(100).optional()
         .describe("Required for leave; use one exact label returned by the options tool for this date."),
       leave_start: personalApplicationTimeSchema.describe("Required with leave_end when the selected leave type exposes a time range."),
       leave_end: personalApplicationTimeSchema.describe("Required with leave_start when the selected leave type exposes a time range."),
-      clock_in: personalApplicationTimeSchema,
-      clock_out: personalApplicationTimeSchema,
+      clock_in: personalApplicationTimeSchema.describe("Required for a replacement work-time correction; forbidden for delete."),
+      clock_out: personalApplicationTimeSchema.describe("Required for a replacement work-time correction; forbidden for delete."),
       break_start: personalApplicationTimeSchema,
       break_end: personalApplicationTimeSchema,
     },
@@ -228,11 +231,12 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_personal_application_commit_create", {
     title: "Submit a freee personal application",
-    description: "Submit one real leave or work-time correction application only after matching preview and explicit current-message approval. Never call directly or retry automatically.",
+    description: "Submit one real leave or work-time correction application only after matching preview and explicit current-message approval. A work_time_action=delete submission creates and verifies an exact 勤務時間を削除 request; the registered work time changes only through freee's approval workflow. Never call directly or retry automatically.",
     inputSchema: {
       kind: personalApplicationKindSchema,
       date: personalApplicationDateSchema,
       reason: personalApplicationReasonSchema,
+      work_time_action: personalApplicationWorkTimeActionSchema,
       leave_type: z.string().min(1).max(100).optional(),
       leave_start: personalApplicationTimeSchema,
       leave_end: personalApplicationTimeSchema,
@@ -419,6 +423,7 @@ function toPersonalApplicationCreateInput(args: {
   kind: "leave" | "overtime" | "work-time-correction";
   date: string;
   reason?: string;
+  work_time_action?: "replace" | "delete";
   leave_type?: string;
   leave_start?: string;
   leave_end?: string;
@@ -430,6 +435,7 @@ function toPersonalApplicationCreateInput(args: {
   kind: "leave" | "overtime" | "work-time-correction";
   date: string;
   reason?: string;
+  workTimeAction?: "replace" | "delete";
   leaveType?: string;
   leaveStart?: string;
   leaveEnd?: string;
@@ -442,6 +448,7 @@ function toPersonalApplicationCreateInput(args: {
     kind: args.kind,
     date: args.date,
     ...(args.reason === undefined ? {} : { reason: args.reason }),
+    ...(args.work_time_action === undefined ? {} : { workTimeAction: args.work_time_action }),
     ...(args.leave_type === undefined ? {} : { leaveType: args.leave_type }),
     ...(args.leave_start === undefined ? {} : { leaveStart: args.leave_start }),
     ...(args.leave_end === undefined ? {} : { leaveEnd: args.leave_end }),

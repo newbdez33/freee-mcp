@@ -247,6 +247,21 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
       listed.tools.find((tool) => tool.name === "freee_personal_application_commit_withdraw").annotations.destructiveHint,
       true,
     );
+    const preparePersonalCreate = listed.tools.find(
+      (tool) => tool.name === "freee_personal_application_prepare_create",
+    );
+    assert.match(preparePersonalCreate.description, /work_time_action=delete/);
+    assert.match(
+      preparePersonalCreate.inputSchema.properties.work_time_action.description,
+      /勤務時間を削除/,
+    );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_personal_application_commit_create")
+        .description,
+      /approval workflow/,
+    );
+    assert.match(instructions, /work_time_action=delete/);
+    assert.match(instructions, /rather than directly deleting a raw record/);
   } finally {
     await client.close();
     await server.close();
@@ -309,6 +324,16 @@ test("MCP tools return safe structured envelopes and default the approval filter
       },
     });
     assert.equal(halfDay.structuredContent.data.action, "create");
+    const deletion = await client.callTool({
+      name: "freee_personal_application_prepare_create",
+      arguments: {
+        kind: "work-time-correction",
+        date: "2026-08-17",
+        work_time_action: "delete",
+        reason: "Duplicate registered work time",
+      },
+    });
+    assert.equal(deletion.structuredContent.data.action, "create");
     const cancellation = await client.callTool({
       name: "freee_personal_application_prepare_cancel",
       arguments: { id: "10034", reason: "Plans changed" },
@@ -328,6 +353,12 @@ test("MCP tools return safe structured envelopes and default the approval filter
         leaveType: "有休（半休）",
         leaveStart: "13:00",
         leaveEnd: "18:00",
+      }],
+      ["requests-prepare-create", {
+        kind: "work-time-correction",
+        date: "2026-08-17",
+        workTimeAction: "delete",
+        reason: "Duplicate registered work time",
       }],
       ["requests-prepare-cancel", "10034", "Plans changed"],
     ]);

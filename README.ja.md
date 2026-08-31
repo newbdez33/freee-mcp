@@ -51,7 +51,7 @@ claude plugin update freee@freee-tools --scope user
 Codex は Skill installer で `skills/freee` をインストールし、次のバージョン固定されたポータブル STDIO コマンドをユーザースコープに登録します。
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.6' freee-mcp
 ```
 
 冒頭のインストールプロンプトが Codex に両方の手順を実行させます。新しい Skill がすぐに検出されない場合は Codex を再起動し、`/mcp` で Server 接続を確認してください。
@@ -61,7 +61,7 @@ codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' f
 クライアント設定または MCP installer を使用し、次のコマンドをユーザーレベルの STDIO MCP として登録します。
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.6' freee-mcp
 ```
 
 このリポジトリの `skills/freee` をクライアントのグローバル Agent Skills 位置へインストールします。OpenCode は `~/.agents/skills/freee` を認識します。他の Agent Skills 対応クライアントではユーザーレベルの場所が異なる場合があります。冒頭のインストールプロンプトにより、プロジェクトファイルを作らずに実行中の Agent が適切な場所を選択できます。
@@ -114,7 +114,7 @@ Pi の同等の手動更新は `pi update` です。ポータブル MCP イン�
 | 利用可能な本人申請種別と休暇種別を取得 | Playwright | 完了 | 対応済み | 全休、時間指定半休、特別休暇、修正フォームの各パターンを検証済み |
 | 本人申請の一覧、絞り込み、ページング、詳細 | Playwright | 完了 | 対応済み | 申請中/差戻し/承認済/全てと正確な詳細を検証済み。2 ページ目は未検証（`LV-R03`） |
 | 休暇申請を作成 | Playwright | 時間指定休暇を含め完了 | 対応済み | 検証済み（`LV-W05`） |
-| 勤務時間修正を作成 | Playwright | 1 勤務区間と任意の完全な休憩 1 組に限定 | 対応済み | 読み取り専用フォームパターンを検証済み。実書き込みは未検証（`LV-W06`） |
+| 勤務時間修正を作成 | Playwright | 1 勤務区間と任意の完全な休憩 1 組、または正確な「勤務時間を削除」申請に対応 | 対応済み | 置換フォームは読み取り専用で検証済み。削除は合成テストで対応。実書き込みは未検証（`LV-W06`） |
 | 残業申請を作成 | Playwright | 未実装。無効または未検証のフォームでは安全停止 | 安全拒否を対応済み | 現在の検証アカウントではフォームが無効 |
 | 未承認の本人申請を取り下げ | Playwright | prepare/commit fingerprint 付きで完了 | 対応済み | 検証済み（`LV-W07`） |
 | 承認済み本人申請を取消申請 | Playwright | 別の取消申請を作成・検証する形で完了 | 対応済み | 最終承認まで検証済み（`LV-W09`） |
@@ -179,8 +179,8 @@ workflow は全検証を再実行し、現在の `main` commit に annotation �
 | `freee_personal_application_options` | 読み取り専用 | 利用可能な本人申請種別と日付別休暇種別を表示 |
 | `freee_personal_applications_list` | 読み取り専用 | 現在の従業員の申請中、差戻し、承認済み、全申請を一覧 |
 | `freee_personal_application_detail` | 読み取り専用 | 本人申請 1 件と利用可能操作を取得 |
-| `freee_personal_application_prepare_create` | 読み取り専用 preview | 休暇または勤務時間修正フォームを入力・検証し fingerprint を生成 |
-| `freee_personal_application_commit_create` | 書き込み | 再検証して本人申請を 1 件提出 |
+| `freee_personal_application_prepare_create` | 読み取り専用 preview | 休暇または勤務時間修正フォーム（正確な「勤務時間を削除」を含む）を入力・検証し fingerprint を生成 |
+| `freee_personal_application_commit_create` | 書き込み | 再検証して本人申請を 1 件提出。削除は raw record の直接削除ではなく修正申請を作成 |
 | `freee_personal_application_prepare_cancel` | 読み取り専用 preview | 承認済み本人申請の取消を検証し fingerprint を生成 |
 | `freee_personal_application_commit_cancel` | 書き込み | 再検証して承認済み申請への取消申請を作成 |
 | `freee_personal_application_prepare_withdraw` | 読み取り専用 preview | 未承認本人申請の取下げ preview と fingerprint を生成 |
@@ -251,6 +251,11 @@ npm run freee -- requests commit-create --kind leave --date YYYY-MM-DD \
 npm run freee -- requests prepare-create --kind work-time-correction \
   --date YYYY-MM-DD --clock-in HH:MM --clock-out HH:MM \
   [--break-start HH:MM --break-end HH:MM] [--reason "REASON"]
+npm run freee -- requests prepare-create --kind work-time-correction \
+  --date YYYY-MM-DD --work-time-action delete [--reason "REASON"]
+npm run freee -- requests commit-create --kind work-time-correction \
+  --date YYYY-MM-DD --work-time-action delete [--reason "REASON"] \
+  --fingerprint PREVIEW_SHA256 --confirm
 npm run freee -- requests prepare-cancel --id APPLICATION_NO [--reason "REASON"]
 npm run freee -- requests commit-cancel --id APPLICATION_NO [--reason "REASON"] \
   --fingerprint PREVIEW_SHA256 --confirm
@@ -289,9 +294,9 @@ Playwright バックエンドは System Keychain 認証情報、永続ログイ�
 
 `requests list` は従業員側の `申請` tab を明示選択し、`申請中`、`差戻し`、`承認済`、`全て` filter を対応する freee response と同期してから解析します。`requests detail` は従業員側の全ページから正確な No. を検索し、表示・有効な `申請を取り下げる` が一つある場合は `withdraw`、承認済み項目に正確な公式 `取消申請` link がある場合は `cancel` を返します。
 
-申請作成前に `requests options` を呼び出してください。`--date` を付けると、会社がその日付に設定した正確な休暇種別を読み取ります。休暇と 1 勤務区間の勤務時間修正に対応し、勤務時間修正には任意の休憩 1 組を含められます。現在のテスト会社では `残業` が有効でないため、機能結果は残業を利用不可として返し、未検証フォームを推測・迂回しません。
+申請作成前に `requests options` を呼び出してください。`--date` を付けると、会社がその日付に設定した正確な休暇種別を読み取ります。休暇と勤務時間修正に対応します。置換修正は 1 勤務区間と任意の完全な休憩 1 組を受け付けます。削除修正は MCP の `work_time_action=delete` または CLI の `--work-time-action delete` を使い、出退勤・休憩時刻をすべて禁止し、正確な「勤務時間を削除」control だけを選択します。これは承認対象の `勤務時間修正` 申請を作成するもので、1 日分の raw record を直接削除しません。現在のテスト会社では `残業` が有効でないため、機能結果は残業を利用不可として返し、未検証フォームを推測・迂回しません。
 
-作成、承認済み申請の取消、未承認申請の取下げは別々の prepare/commit を使います。取消 prepare は元の承認済み申請、任意の取消理由、公式 `ApprovalRequest::Revoke` フォーム、申請経路、最近の申請一覧を fingerprint に束縛します。commit は新しい取消申請を一つだけ作成・検証します。新しい取消申請が承認されるまで、元の休暇を取消済みとは報告しません。作成と取消の prepare は最終 `申請` をクリックせず、取下げ prepare は `申請を取り下げる` をクリックしません。各 commit は同じ preview を再構築し、変更があれば停止し、現在メッセージの明示承認後に 1 回だけクリックして結果を検証します。結果不明なら自動再試行しません。
+作成、承認済み申請の取消、未承認申請の取下げは別々の prepare/commit を使います。削除 preview は正確な日付、`workTimeAction: "delete"`、理由、申請経路、選択済みの「勤務時間を削除」を束縛します。commit は preview を再構築し、クリック直前にも正確な option が選択中であることを確認し、同日で内容が正確に「勤務時間を削除」の新しい `勤務時間修正` 申請 1 件だけを成功として受け入れます。取消 prepare は元の承認済み申請、任意の取消理由、公式 `ApprovalRequest::Revoke` フォーム、申請経路、最近の申請一覧を fingerprint に束縛します。commit は新しい取消申請を一つだけ作成・検証します。新しい取消申請が承認されるまで、元の休暇を取消済みとは報告しません。作成と取消の prepare は最終 `申請` をクリックせず、取下げ prepare は `申請を取り下げる` をクリックしません。各 commit は同じ preview を再構築し、変更があれば停止し、現在メッセージの明示承認後に 1 回だけクリックして結果を検証します。結果不明なら自動再試行しません。
 
 ## 従業員申請の処理
 

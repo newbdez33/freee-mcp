@@ -51,7 +51,7 @@ claude plugin update freee@freee-tools --scope user
 Codex 使用 Skill installer 安装 `skills/freee`，并在用户级注册下面这个固定版本、可移植的 STDIO 命令：
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.6' freee-mcp
 ```
 
 开头的安装提示会让 Codex 完成这两个步骤。如果新 Skill 没有立即被发现，请重启 Codex，然后通过 `/mcp` 验证 Server 连接。
@@ -61,7 +61,7 @@ codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' f
 通过客户端设置或 MCP 安装器，把下面命令注册为用户级 STDIO MCP：
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.6' freee-mcp
 ```
 
 将本仓库的 `skills/freee` 安装到客户端的全局 Agent Skills 目录。OpenCode 识别 `~/.agents/skills/freee`；其他兼容 Agent Skills 的客户端可能使用不同的用户级目录。开头的安装提示会让当前 Agent 选择正确位置，不会创建项目文件。
@@ -114,7 +114,7 @@ Pi 的等效手动更新命令是 `pi update`。可移植 MCP 安装会刻意固
 | 探测已启用的本人申请与休假类型 | Playwright | 完成 | 已覆盖 | 全日、定时半休、特别休假及修正表单变体已验证 |
 | 本人申请的列表、筛选、分页和详情 | Playwright | 完成 | 已覆盖 | pending/returned/approved/all 及准确详情已验证；第 2 页待验收（`LV-R03`） |
 | 创建休假申请 | Playwright | 完成，包括显式的定时休假范围 | 已覆盖 | 已验证（`LV-W05`） |
-| 创建勤務時間修正 | Playwright | 部分支持：一段工作时间和一组可选完整休息时间 | 已覆盖 | 只读表单变体已验证；真实写入待验收（`LV-W06`） |
+| 创建勤務時間修正 | Playwright | 支持一段替换工作时间及一组可选完整休息时间，或精确的「勤務時間を削除」申请 | 已覆盖 | 替换表单已只读验证；删除由合成测试覆盖；真实写入待验收（`LV-W06`） |
 | 创建加班申请 | Playwright | 未实现；未启用或未验证的表单会安全停止 | 安全拒绝路径已覆盖 | 当前验收账号未启用该表单 |
 | 撤回待处理的本人申请 | Playwright | 完成，使用 prepare/commit 指纹 | 已覆盖 | 已验证（`LV-W07`） |
 | 取消已批准的本人申请 | Playwright | 完成；会创建并验证一条独立的取消申请 | 已覆盖 | 已验证至最终批准（`LV-W09`） |
@@ -179,8 +179,8 @@ Codex 配置保留 `default_tools_approval_mode = "writes"`，因此无关的 co
 | `freee_personal_application_options` | 只读 | 显示已启用的本人申请类型和指定日期休假类型 |
 | `freee_personal_applications_list` | 只读 | 列出当前员工 pending、returned、approved 或全部申请 |
 | `freee_personal_application_detail` | 只读 | 读取当前员工单条申请及其可用操作 |
-| `freee_personal_application_prepare_create` | 只读预览 | 填写并验证休假或勤務時間修正表单，生成指纹 |
-| `freee_personal_application_commit_create` | 写入 | 重新校验并提交一条本人申请 |
+| `freee_personal_application_prepare_create` | 只读预览 | 填写并验证休假或勤務時間修正表单（包括精确的「勤務時間を削除」），生成指纹 |
+| `freee_personal_application_commit_create` | 写入 | 重新校验并提交一条本人申请；删除会创建修正申请，不会直接删除原始记录 |
 | `freee_personal_application_prepare_cancel` | 只读预览 | 验证对已批准本人申请的取消操作并生成指纹 |
 | `freee_personal_application_commit_cancel` | 写入 | 重新校验并为已批准申请创建一条取消申请 |
 | `freee_personal_application_prepare_withdraw` | 只读预览 | 为待处理本人申请生成撤回预览和指纹 |
@@ -251,6 +251,11 @@ npm run freee -- requests commit-create --kind leave --date YYYY-MM-DD \
 npm run freee -- requests prepare-create --kind work-time-correction \
   --date YYYY-MM-DD --clock-in HH:MM --clock-out HH:MM \
   [--break-start HH:MM --break-end HH:MM] [--reason "REASON"]
+npm run freee -- requests prepare-create --kind work-time-correction \
+  --date YYYY-MM-DD --work-time-action delete [--reason "REASON"]
+npm run freee -- requests commit-create --kind work-time-correction \
+  --date YYYY-MM-DD --work-time-action delete [--reason "REASON"] \
+  --fingerprint PREVIEW_SHA256 --confirm
 npm run freee -- requests prepare-cancel --id APPLICATION_NO [--reason "REASON"]
 npm run freee -- requests commit-cancel --id APPLICATION_NO [--reason "REASON"] \
   --fingerprint PREVIEW_SHA256 --confirm
@@ -289,9 +294,9 @@ Playwright 后端支持 System Keychain 凭据、持久登录、本人打卡状�
 
 `requests list` 会明确选择员工侧 `申請` 标签，并让 `申請中`、`差戻し`、`承認済`、`全て` 各筛选器与对应 freee 响应同步后再解析。`requests detail` 会搜索员工侧全部页面中的准确 No.；存在唯一可见且启用的 `申請を取り下げる` 时报告 `withdraw`，已批准项目提供准确官方 `取消申請` 链接时报告 `cancel`。
 
-创建前先调用 `requests options`。提供 `--date` 时，它会读取公司为该日期配置的准确休假类型。本版本支持休假和单段勤務時間修正；修正可包含一组可选休息时间。当前测试公司没有启用 `残業`，因此能力结果会报告加班不可用，本版本不会猜测或绕过未经验证的加班表单。
+创建前先调用 `requests options`。提供 `--date` 时，它会读取公司为该日期配置的准确休假类型。本版本支持休假和勤務時間修正。替换修正支持一段工作时间及一组可选完整休息时间；删除修正在 MCP 中使用 `work_time_action=delete`，在 CLI 中使用 `--work-time-action delete`，禁止同时提供任何上下班或休息时间，并且只选择精确的「勤務時間を削除」控件。该操作创建待审批的 `勤務時間修正` 申请，不会直接删除某天的原始记录。当前测试公司没有启用 `残業`，因此能力结果会报告加班不可用，本版本不会猜测或绕过未经验证的加班表单。
 
-创建、取消已批准申请、撤回待处理申请使用各自独立的 prepare/commit。取消预览会绑定原始已批准申请、可选取消理由、官方 `ApprovalRequest::Revoke` 表单、审批路径和最近申请列表；commit 会创建并验证唯一的新取消申请。新申请批准前，不会声称原休假已经取消。创建和取消的 prepare 不点击最终 `申請`，撤回的 prepare 不点击 `申請を取り下げる`。每次 commit 都重建相同预览，任何变化都会停止；它要求当前消息明确批准，只点击一次并验证结果。结果未知时绝不自动重试。
+创建、取消已批准申请、撤回待处理申请使用各自独立的 prepare/commit。删除预览会绑定准确日期、`workTimeAction: "delete"`、理由、审批路径和已选中的「勤務時間を削除」选项；commit 会重建预览，在点击前再次确认该准确选项仍被选中，并且只接受同日、内容精确为「勤務時間を削除」的唯一新 `勤務時間修正` 申请。取消预览会绑定原始已批准申请、可选取消理由、官方 `ApprovalRequest::Revoke` 表单、审批路径和最近申请列表；commit 会创建并验证唯一的新取消申请。新申请批准前，不会声称原休假已经取消。创建和取消的 prepare 不点击最终 `申請`，撤回的 prepare 不点击 `申請を取り下げる`。每次 commit 都重建相同预览，任何变化都会停止；它要求当前消息明确批准，只点击一次并验证结果。结果未知时绝不自动重试。
 
 ## 员工申请处理
 

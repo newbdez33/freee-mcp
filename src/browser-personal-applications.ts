@@ -12,6 +12,7 @@ export type BrowserPersonalApplicationKind =
   | "leave"
   | "overtime"
   | "work-time-correction";
+export type BrowserPersonalApplicationWorkTimeAction = "replace" | "delete";
 
 export interface BrowserPersonalApplicationCapability {
   kind: BrowserPersonalApplicationKind;
@@ -44,6 +45,7 @@ export interface BrowserPersonalApplicationCreateInput {
   kind: BrowserPersonalApplicationKind;
   date: string;
   reason?: string;
+  workTimeAction?: BrowserPersonalApplicationWorkTimeAction;
   leaveType?: string;
   leaveStart?: string;
   leaveEnd?: string;
@@ -57,6 +59,7 @@ export interface NormalizedPersonalApplicationCreateInput {
   kind: BrowserPersonalApplicationKind;
   date: string;
   reason: string;
+  workTimeAction: BrowserPersonalApplicationWorkTimeAction | null;
   leaveType: string | null;
   leaveStart: string | null;
   leaveEnd: string | null;
@@ -110,6 +113,7 @@ export function normalizePersonalApplicationCreateInput(
     );
   }
   const reason = normalizePersonalApplicationReason(input.reason);
+  const requestedWorkTimeAction = normalizeOptional(input.workTimeAction);
   const leaveType = normalizeOptional(input.leaveType);
   const leaveStart = normalizeOptional(input.leaveStart);
   const leaveEnd = normalizeOptional(input.leaveEnd);
@@ -119,6 +123,7 @@ export function normalizePersonalApplicationCreateInput(
   const breakEnd = normalizeOptional(input.breakEnd);
 
   if (input.kind === "leave") {
+    assertUnusedWorkTimeAction(input.kind, requestedWorkTimeAction);
     if (!leaveType || leaveType.length > 100) {
       throw new CliError(
         "INVALID_PERSONAL_APPLICATION_LEAVE_TYPE",
@@ -146,6 +151,7 @@ export function normalizePersonalApplicationCreateInput(
       kind: input.kind,
       date,
       reason,
+      workTimeAction: null,
       leaveType,
       leaveStart,
       leaveEnd,
@@ -157,18 +163,11 @@ export function normalizePersonalApplicationCreateInput(
   }
 
   if (input.kind === "work-time-correction") {
-    if (!isClockTime(clockIn) || !isClockTime(clockOut)) {
+    const workTimeAction = requestedWorkTimeAction ?? "replace";
+    if (workTimeAction !== "replace" && workTimeAction !== "delete") {
       throw new CliError(
-        "INVALID_PERSONAL_APPLICATION_TIME",
-        "A work-time correction requires clock_in and clock_out in HH:MM format.",
-        { exitCode: 2 },
-      );
-    }
-    if ((breakStart === null) !== (breakEnd === null)
-        || (breakStart !== null && (!isClockTime(breakStart) || !isClockTime(breakEnd)))) {
-      throw new CliError(
-        "INVALID_PERSONAL_APPLICATION_BREAK",
-        "break_start and break_end must either both be omitted or both use HH:MM format.",
+        "INVALID_PERSONAL_APPLICATION_WORK_TIME_ACTION",
+        "work_time_action must be 'replace' or 'delete' for a work-time correction.",
         { exitCode: 2 },
       );
     }
@@ -186,10 +185,48 @@ export function normalizePersonalApplicationCreateInput(
         { exitCode: 2 },
       );
     }
+    if (workTimeAction === "delete") {
+      if (clockIn || clockOut || breakStart || breakEnd) {
+        throw new CliError(
+          "INVALID_PERSONAL_APPLICATION_FIELDS",
+          "A work-time deletion must not include clock_in, clock_out, break_start, or break_end.",
+          { exitCode: 2 },
+        );
+      }
+      return {
+        kind: input.kind,
+        date,
+        reason,
+        workTimeAction,
+        leaveType: null,
+        leaveStart: null,
+        leaveEnd: null,
+        clockIn: null,
+        clockOut: null,
+        breakStart: null,
+        breakEnd: null,
+      };
+    }
+    if (!isClockTime(clockIn) || !isClockTime(clockOut)) {
+      throw new CliError(
+        "INVALID_PERSONAL_APPLICATION_TIME",
+        "A work-time correction requires clock_in and clock_out in HH:MM format.",
+        { exitCode: 2 },
+      );
+    }
+    if ((breakStart === null) !== (breakEnd === null)
+        || (breakStart !== null && (!isClockTime(breakStart) || !isClockTime(breakEnd)))) {
+      throw new CliError(
+        "INVALID_PERSONAL_APPLICATION_BREAK",
+        "break_start and break_end must either both be omitted or both use HH:MM format.",
+        { exitCode: 2 },
+      );
+    }
     return {
       kind: input.kind,
       date,
       reason,
+      workTimeAction,
       leaveType: null,
       leaveStart: null,
       leaveEnd: null,
@@ -201,6 +238,7 @@ export function normalizePersonalApplicationCreateInput(
   }
 
   if (input.kind === "overtime") {
+    assertUnusedWorkTimeAction(input.kind, requestedWorkTimeAction);
     if (leaveType || leaveStart || leaveEnd || clockIn || clockOut || breakStart || breakEnd) {
       throw new CliError(
         "INVALID_PERSONAL_APPLICATION_FIELDS",
@@ -212,6 +250,7 @@ export function normalizePersonalApplicationCreateInput(
       kind: input.kind,
       date,
       reason,
+      workTimeAction: null,
       leaveType: null,
       leaveStart: null,
       leaveEnd: null,
@@ -232,7 +271,19 @@ export function normalizePersonalApplicationCreateInput(
 export function createPersonalApplicationCreateFingerprint(
   preview: BrowserPersonalApplicationCreatePreview,
 ): string {
-  return hash({ version: 1, action: "create", preview });
+  return hash({ version: 2, action: "create", preview });
+}
+
+export function isVerifiedCreatedWorkTimeDeletion(
+  application: Pick<NormalizedPersonalApplicationCreateInput, "kind" | "date" | "workTimeAction">,
+  created: Pick<BrowserApprovalSummary, "type" | "targetDate" | "content">,
+): boolean {
+  if (application.kind !== "work-time-correction" || application.workTimeAction !== "delete") {
+    return false;
+  }
+  return created.type === "勤務時間修正"
+    && created.targetDate === application.date.replaceAll("-", "/")
+    && created.content === "勤務時間を削除";
 }
 
 export function createPersonalApplicationWithdrawFingerprint(
@@ -297,6 +348,19 @@ function assertUnusedTimeFields(
     throw new CliError(
       "INVALID_PERSONAL_APPLICATION_FIELDS",
       `Time fields are not valid for a '${kind}' application.`,
+      { exitCode: 2 },
+    );
+  }
+}
+
+function assertUnusedWorkTimeAction(
+  kind: BrowserPersonalApplicationKind,
+  workTimeAction: string | null,
+): void {
+  if (workTimeAction !== null) {
+    throw new CliError(
+      "INVALID_PERSONAL_APPLICATION_FIELDS",
+      `work_time_action is not valid for a '${kind}' application.`,
       { exitCode: 2 },
     );
   }

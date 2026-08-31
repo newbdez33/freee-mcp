@@ -1632,6 +1632,152 @@ test("Playwright work-time deletion selects only the exact form option without s
   assert.deepEqual(state.clicks, []);
 });
 
+test("Playwright work-time deletion supports freee's exact visible label and hidden input", async () => {
+  const { client, state } = createFakeBrowser([]);
+  let selected = false;
+  client.selectApplicationDate = async () => {};
+  client.readPersonalApplicationRoute = async () => "勤怠申請";
+  client.captureDiagnosticScreenshot = async () => {};
+  client.page.getByRole = () => ({
+    async count() { return 0; },
+  });
+  client.page.locator = (selector) => {
+    if (selector === '[data-testid="clear-work-time-true"]') {
+      return {
+        async count() { return 1; },
+        async isVisible() { return true; },
+        async click() { selected = true; },
+        async evaluate() {
+          return {
+            tagName: "label",
+            text: "勤務時間を削除する",
+            inputType: "radio",
+            disabled: false,
+            checked: selected,
+          };
+        },
+      };
+    }
+    assert.equal(selector, '[data-testid="申請理由"]');
+    return { async fill() {} };
+  };
+
+  const route = await client.fillWorkTimeCorrectionForm(
+    normalizePersonalApplicationCreateInput({
+      kind: "work-time-correction",
+      date: "2026-08-17",
+      workTimeAction: "delete",
+    }),
+  );
+
+  assert.equal(route, "勤怠申請");
+  assert.equal(selected, true);
+  assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright personal application route selects only one controlled combobox option", async () => {
+  const { client, state } = createFakeBrowser([]);
+  let routeValue = "";
+  const presses = [];
+  const routeControl = {
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async inputValue() { return routeValue; },
+    async getAttribute(name) {
+      if (name === "role") return "combobox";
+      if (name === "aria-controls") return "approval-route-options";
+      return null;
+    },
+    async click() {},
+    async press(key) {
+      presses.push(key);
+      if (key === "Enter") routeValue = "勤怠申請";
+    },
+  };
+  const option = {
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+  };
+  const options = {
+    async allTextContents() { return [" 勤怠申請 "]; },
+    async count() { return 1; },
+    first() { return option; },
+  };
+  const listbox = {
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async getAttribute(name) { return name === "role" ? "listbox" : null; },
+    getByRole(role) {
+      assert.equal(role, "option");
+      return options;
+    },
+  };
+  client.page.waitForFunction = async () => {};
+  client.page.locator = (selector) => {
+    if (selector === "#approval-request-fields-route-id") return routeControl;
+    assert.equal(selector, '[id="approval-route-options"]');
+    return listbox;
+  };
+
+  const route = await client.readPersonalApplicationRoute();
+
+  assert.equal(route, "勤怠申請");
+  assert.deepEqual(presses, ["ArrowDown", "Enter"]);
+  assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright personal application route fails closed when multiple options exist", async () => {
+  const { client, state } = createFakeBrowser([]);
+  const presses = [];
+  const routeControl = {
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+    async inputValue() { return ""; },
+    async getAttribute(name) {
+      if (name === "role") return "combobox";
+      if (name === "aria-controls") return "approval-route-options";
+      return null;
+    },
+    async click() {},
+    async press(key) { presses.push(key); },
+  };
+  const options = {
+    async allTextContents() { return ["勤怠申請", "別の経路"]; },
+    async count() { return 2; },
+    first() {
+      return {
+        async isVisible() { return true; },
+        async isEnabled() { return true; },
+      };
+    },
+  };
+  const listbox = {
+    async count() { return 1; },
+    async isVisible() { return true; },
+    async getAttribute(name) { return name === "role" ? "listbox" : null; },
+    getByRole(role) {
+      assert.equal(role, "option");
+      return options;
+    },
+  };
+  client.page.waitForFunction = async () => {};
+  client.page.locator = (selector) => {
+    if (selector === "#approval-request-fields-route-id") return routeControl;
+    assert.equal(selector, '[id="approval-route-options"]');
+    return listbox;
+  };
+
+  await assert.rejects(
+    client.readPersonalApplicationRoute(),
+    (error) => error.code === "PERSONAL_APPLICATION_ROUTE_REQUIRED"
+      && error.details.availableRoutes.join(",") === "勤怠申請,別の経路",
+  );
+  assert.deepEqual(presses, ["ArrowDown"]);
+  assert.deepEqual(state.clicks, []);
+});
+
 test("Playwright work-time deletion fails closed when the exact option is missing or ambiguous", async () => {
   for (const availableRoles of [[], ["radio", "checkbox"]]) {
     const { client, state } = createFakeBrowser([]);

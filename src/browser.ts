@@ -2559,8 +2559,12 @@ export class FreeeBrowserClient {
 
   private async selectWorkTimeDeletionOption(): Promise<void> {
     const candidate = await this.getWorkTimeDeletionControl();
-    await candidate.control.check({ timeout: this.config.navigationTimeoutMs });
-    if (!await candidate.control.isChecked()) {
+    if (candidate.kind === "input") {
+      await candidate.control.check({ timeout: this.config.navigationTimeoutMs });
+    } else {
+      await candidate.control.click({ timeout: this.config.navigationTimeoutMs });
+    }
+    if (!await this.isWorkTimeDeletionControlChecked(candidate)) {
       throw new CliError(
         "PERSONAL_APPLICATION_WORK_TIME_DELETE_UNAVAILABLE",
         "freee did not retain the exact 勤務時間を削除 selection. No application was submitted.",
@@ -2571,7 +2575,7 @@ export class FreeeBrowserClient {
 
   private async assertWorkTimeDeletionOptionSelected(): Promise<void> {
     const candidate = await this.getWorkTimeDeletionControl();
-    if (!await candidate.control.isChecked()) {
+    if (!await this.isWorkTimeDeletionControlChecked(candidate)) {
       throw new CliError(
         "PERSONAL_APPLICATION_PREVIEW_CHANGED",
         "The exact 勤務時間を削除 option is no longer selected. No application was submitted; prepare a new preview.",
@@ -2581,7 +2585,8 @@ export class FreeeBrowserClient {
   }
 
   private async getWorkTimeDeletionControl(): Promise<{
-    role: "radio" | "checkbox";
+    kind: "input" | "label";
+    role: "radio" | "checkbox" | "label";
     control: Locator;
   }> {
     const label = "勤務時間を削除";
@@ -2594,22 +2599,161 @@ export class FreeeBrowserClient {
       count: await control.count(),
     })));
     const totalCount = counts.reduce((total, candidate) => total + candidate.count, 0);
-    if (totalCount !== 1) {
+    if (totalCount > 1) {
+      const exactTextControls = await this.describeExactWorkTimeDeletionText(label)
+        .catch(() => ({ count: null, visibleControls: [] }));
+      const deletionTextControls = await this.describeVisibleDeletionControls()
+        .catch(() => []);
       throw new CliError(
         "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
         "freee did not expose exactly one radio or checkbox named 勤務時間を削除. No application was submitted.",
-        { details: { label, candidates: counts }, exitCode: 2 },
+        {
+          details: { label, candidates: counts, exactTextControls, deletionTextControls },
+          exitCode: 2,
+        },
       );
     }
-    const candidate = candidates[counts.findIndex(({ count }) => count === 1)]!;
-    if (!await candidate.control.isVisible() || !await candidate.control.isEnabled()) {
+    if (totalCount === 1) {
+      const candidate = candidates[counts.findIndex(({ count }) => count === 1)]!;
+      if (!await candidate.control.isVisible() || !await candidate.control.isEnabled()) {
+        throw new CliError(
+          "PERSONAL_APPLICATION_WORK_TIME_DELETE_UNAVAILABLE",
+          "The exact 勤務時間を削除 option is not visible and enabled for the selected date. No application was submitted.",
+          { details: { label, role: candidate.role }, exitCode: 2 },
+        );
+      }
+      return { kind: "input", ...candidate };
+    }
+
+    const labelControl = this.page.locator('[data-testid="clear-work-time-true"]');
+    const labelCount = await labelControl.count();
+    const labelState = labelCount === 1
+      ? await this.readWorkTimeDeletionLabelState(labelControl)
+      : null;
+    if (labelCount !== 1
+        || !await labelControl.isVisible().catch(() => false)
+        || labelState?.tagName !== "label"
+        || labelState.text !== "勤務時間を削除する"
+        || (labelState.inputType !== "radio" && labelState.inputType !== "checkbox")
+        || labelState.disabled !== false) {
+      const exactTextControls = await this.describeExactWorkTimeDeletionText(label)
+        .catch(() => ({ count: null, visibleControls: [] }));
+      const deletionTextControls = await this.describeVisibleDeletionControls()
+        .catch(() => []);
       throw new CliError(
-        "PERSONAL_APPLICATION_WORK_TIME_DELETE_UNAVAILABLE",
-        "The exact 勤務時間を削除 option is not visible and enabled for the selected date. No application was submitted.",
-        { details: { label, role: candidate.role }, exitCode: 2 },
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "freee did not expose one exact supported 勤務時間を削除する control. No application was submitted.",
+        {
+          details: {
+            label,
+            candidates: counts,
+            labelCandidate: { count: labelCount, state: labelState },
+            exactTextControls,
+            deletionTextControls,
+          },
+          exitCode: 2,
+        },
       );
     }
-    return candidate;
+    return { kind: "label", role: "label", control: labelControl };
+  }
+
+  private async isWorkTimeDeletionControlChecked(candidate: {
+    kind: "input" | "label";
+    control: Locator;
+  }): Promise<boolean> {
+    return candidate.kind === "input"
+      ? candidate.control.isChecked()
+      : (await this.readWorkTimeDeletionLabelState(candidate.control)).checked;
+  }
+
+  private async readWorkTimeDeletionLabelState(control: Locator): Promise<{
+    tagName: string;
+    text: string;
+    inputType: string | null;
+    disabled: boolean | null;
+    checked: boolean;
+  }> {
+    return control.evaluate((element) => {
+      const input = element instanceof HTMLLabelElement && element.control instanceof HTMLInputElement
+        ? element.control
+        : null;
+      return {
+        tagName: element.tagName.toLowerCase(),
+        text: (element.textContent ?? "").trim().replace(/\s+/g, " "),
+        inputType: input?.type ?? null,
+        disabled: input?.disabled ?? null,
+        checked: input?.checked ?? false,
+      };
+    });
+  }
+
+  private async describeExactWorkTimeDeletionText(label: string): Promise<{
+    count: number;
+    visibleControls: Array<{
+      tagName: string;
+      role: string | null;
+      inputType: string | null;
+      ariaLabel: string | null;
+      dataTestId: string | null;
+    }>;
+  }> {
+    const matches = this.page.getByText(label, { exact: true });
+    const count = await matches.count();
+    const visibleControls = [];
+    for (let index = 0; index < Math.min(count, 10); index += 1) {
+      const match = matches.nth(index);
+      if (!await match.isVisible()) {
+        continue;
+      }
+      visibleControls.push(await match.evaluate((element) => {
+        const control = element.closest("button,input,label,a,[role]") ?? element;
+        const input = control instanceof HTMLInputElement
+          ? control
+          : control.querySelector<HTMLInputElement>("input");
+        return {
+          tagName: control.tagName.toLowerCase(),
+          role: control.getAttribute("role"),
+          inputType: input?.type ?? null,
+          ariaLabel: control.getAttribute("aria-label"),
+          dataTestId: control.getAttribute("data-testid"),
+        };
+      }));
+    }
+    return { count, visibleControls };
+  }
+
+  private async describeVisibleDeletionControls(): Promise<Array<{
+    text: string;
+    tagName: string;
+    role: string | null;
+    inputType: string | null;
+    ariaLabel: string | null;
+    dataTestId: string | null;
+  }>> {
+    return this.page.locator("button,label,a,[role],input").evaluateAll((elements) => elements
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        return style.visibility !== "hidden"
+          && style.display !== "none"
+          && element.getClientRects().length > 0;
+      })
+      .map((element) => {
+        const inputValue = element instanceof HTMLInputElement ? element.value : "";
+        const visibleText = (element.getAttribute("aria-label") ?? element.textContent ?? "").trim();
+        const text = (visibleText || inputValue.trim())
+          .replace(/\s+/g, " ");
+        return {
+          text,
+          tagName: element.tagName.toLowerCase(),
+          role: element.getAttribute("role"),
+          inputType: element instanceof HTMLInputElement ? element.type : null,
+          ariaLabel: element.getAttribute("aria-label"),
+          dataTestId: element.getAttribute("data-testid"),
+        };
+      })
+      .filter(({ text }) => text.includes("削除"))
+      .slice(0, 20));
   }
 
   private async selectApplicationDate(selector: string, date: string): Promise<void> {
@@ -2711,7 +2855,8 @@ export class FreeeBrowserClient {
     await this.page.waitForFunction(() => {
       const value = document.querySelector<HTMLInputElement>("#approval-request-fields-route-id")?.value;
       return typeof value === "string" && value.trim().length > 0;
-    }, undefined, { timeout: this.config.navigationTimeoutMs }).catch(() => undefined);
+    }, undefined, { timeout: Math.min(this.config.navigationTimeoutMs, 3_000) })
+      .catch(() => undefined);
     if (await route.count() !== 1 || !await route.isVisible() || !await route.isEnabled()) {
       throw new CliError(
         "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
@@ -2719,12 +2864,106 @@ export class FreeeBrowserClient {
         { exitCode: 2 },
       );
     }
-    const value = (await route.inputValue()).trim();
+    let value = (await route.inputValue()).trim();
+    if (!value && await route.getAttribute("role") === "combobox") {
+      let routeStage = "open-combobox";
+      try {
+        await route.click();
+        await route.press("ArrowDown");
+        await this.page.waitForTimeout(100);
+        routeStage = "locate-controlled-listbox";
+        const popupId = await route.getAttribute("aria-controls");
+        const listbox = popupId && !popupId.includes("\0")
+          ? this.page.locator(`[id=${JSON.stringify(popupId)}]`)
+          : null;
+        if (listbox
+            && await listbox.count() === 1
+            && await listbox.isVisible()
+            && await listbox.getAttribute("role") === "listbox") {
+          routeStage = "read-route-options";
+          const options = listbox.getByRole("option");
+          const availableRoutes = (await options.allTextContents())
+            .map((label) => label.trim().replace(/\s+/g, " "))
+            .filter(Boolean);
+          if (availableRoutes.length === 1
+              && await options.count() === 1
+              && await options.first().isVisible()
+              && await options.first().isEnabled()) {
+            routeStage = "select-only-route";
+            await route.press("Enter");
+            routeStage = "verify-selected-route";
+            await this.page.waitForFunction(() => {
+              const selected = document.querySelector<HTMLInputElement>(
+                "#approval-request-fields-route-id",
+              );
+              return Boolean(selected?.value.trim());
+            }, undefined, { timeout: this.config.navigationTimeoutMs }).catch(() => undefined);
+            value = (await route.inputValue()).trim();
+          } else {
+            throw new CliError(
+              "PERSONAL_APPLICATION_ROUTE_REQUIRED",
+              "freee requires an approval route. Select one exact route before preparing this application.",
+              { details: { availableRoutes }, exitCode: 2 },
+            );
+          }
+        }
+      } catch (error) {
+        if (error instanceof CliError) {
+          throw error;
+        }
+        throw new CliError(
+          "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+          "freee could not safely complete the approval-route selection. No application was submitted.",
+          { details: { routeStage }, exitCode: 2 },
+        );
+      }
+    }
     if (!value) {
+      const routeControl = await route.evaluate((element) => ({
+        tagName: element.tagName.toLowerCase(),
+        role: element.getAttribute("role"),
+        type: element instanceof HTMLInputElement ? element.type : null,
+        placeholder: element.getAttribute("placeholder"),
+        ariaExpanded: element.getAttribute("aria-expanded"),
+        ariaControls: element.getAttribute("aria-controls"),
+        ariaOwns: element.getAttribute("aria-owns"),
+        options: element instanceof HTMLSelectElement
+          ? Array.from(element.options).map((option) => ({
+            value: option.value,
+            label: option.textContent?.trim().replace(/\s+/g, " ") ?? "",
+            disabled: option.disabled,
+          }))
+          : [],
+        controlledPopup: (() => {
+          const popupId = element.getAttribute("aria-controls") ?? element.getAttribute("aria-owns");
+          const popup = popupId ? document.getElementById(popupId) : null;
+          if (!popup) {
+            return null;
+          }
+          return {
+            tagName: popup.tagName.toLowerCase(),
+            role: popup.getAttribute("role"),
+            items: Array.from(popup.querySelectorAll("li,[role='option'],button"))
+              .filter((item) => {
+                const style = getComputedStyle(item);
+                return style.visibility !== "hidden"
+                  && style.display !== "none"
+                  && item.getClientRects().length > 0;
+              })
+              .map((item) => ({
+                text: (item.textContent ?? "").trim().replace(/\s+/g, " "),
+                tagName: item.tagName.toLowerCase(),
+                role: item.getAttribute("role"),
+              }))
+              .filter(({ text }) => text.length > 0)
+              .slice(0, 20),
+          };
+        })(),
+      }));
       throw new CliError(
         "PERSONAL_APPLICATION_ROUTE_REQUIRED",
         "freee requires an approval route, but no route was selected for this application.",
-        { exitCode: 2 },
+        { details: { routeControl }, exitCode: 2 },
       );
     }
     return value;

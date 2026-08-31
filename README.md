@@ -51,7 +51,7 @@ Plugin releases use semantic versions. Maintainers must bump `package.json` and 
 Codex installs `skills/freee` with its Skill installer and registers this pinned, portable STDIO command at user scope:
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' freee-mcp
 ```
 
 The opening installation prompt asks Codex to perform both steps. Restart Codex if the newly installed Skill is not discovered immediately, then use `/mcp` to verify the server connection.
@@ -61,7 +61,7 @@ The opening installation prompt asks Codex to perform both steps. Restart Codex 
 Register this as a user-level STDIO MCP command using the client's settings or MCP installer:
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.4.4' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.4.5' freee-mcp
 ```
 
 Install `skills/freee` from this repository in the client's global Agent Skills location. OpenCode recognizes `~/.agents/skills/freee`; other Agent Skills-compatible clients may use a different user-level directory. The opening installation prompt lets the running agent select the correct location without creating project files.

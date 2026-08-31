@@ -242,7 +242,7 @@ npm run freee -- approvals prepare-action \
   --id APPLICATION_NO --action approve|return
 ```
 
-The command succeeds only when that exact action is currently available. It returns the complete detail preview and a SHA-256 `fingerprint`; no business button is clicked. Present the applicant identity, type, target date, content, reason, freee automatic checks, requested action, and fingerprint to the user.
+The command succeeds only when that exact action is currently available. Before an `approve` action for type `休暇`, it reads every pending manager-approval page and requires no pending `勤務時間修正` with the exact same applicant and target date. A matching correction blocks without a fingerprint even when its structured `workTimeChange` is null. A missing reliable leave applicant or target date also stops fail-closed. It returns the complete detail preview and a SHA-256 `fingerprint`; no business button is clicked. Present the applicant identity, type, target date, content, reason, freee automatic checks, requested action, and fingerprint to the user.
 
 Only after the current user message explicitly approves that exact No. and action, use the unchanged values:
 
@@ -252,7 +252,7 @@ npm run freee -- approvals commit-action \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-The CLI reopens the application and recomputes the fingerprint before locating one exact visible, enabled freee button. Any changed detail, new comment, changed availability, missing confirmation, or ambiguous control stops before the click. A post-click state is read again across the synchronized paginated workflow and must match `承認済` for approve or `差戻し` for return. If a self-application leaves the manager history after return, the exact employee-side No., type, target date, content, reason, and application date may verify the final state. Absence from both workflows, a different target, or a different state is reported as unknown and must be inspected before any further write. Never retry an unknown result. `return` maps to freee's `申請者へ差し戻す`; do not describe it as an irreversible rejection. Batch approval is not implemented.
+The CLI reopens the application and recomputes the fingerprint before locating one exact visible, enabled freee button. For a `休暇` approval, it repeats the complete pending-page dependency check, then reopens the exact target again and requires unchanged detail, action availability, and fingerprint. A new pending same-applicant, same-date `勤務時間修正` stops the commit. Any changed detail, new comment, changed availability, missing confirmation, or ambiguous control stops before the click. A post-click state is read again across the synchronized paginated workflow and must match `承認済` for approve or `差戻し` for return. If a self-application leaves the manager history after return, the exact employee-side No., type, target date, content, reason, and application date may verify the final state. Absence from both workflows, a different target, or a different state is reported as unknown and must be inspected before any further write. Never retry an unknown result. `return` maps to freee's `申請者へ差し戻す`; do not describe it as an irreversible rejection. The leave dependency rule does not apply to `return`, to approving a `勤務時間修正`, or to the dedicated monthly approval workflow. Batch approval is not implemented.
 
 `auth client` reports only a short SHA-256 fingerprint of the configured Client ID plus the callback URL. Use it to match a configured credential to a freee developer app without printing the Client ID or Client Secret.
 
@@ -367,6 +367,8 @@ Important error codes:
 - `INVALID_APPROVAL_PAGE`: use a positive page no greater than the returned `pageCount`.
 - `APPROVAL_NOT_FOUND`: the numeric application No. was absent after every manager-workflow page was read; do not substitute a similar item.
 - `APPROVAL_ACTION_UNAVAILABLE`: the application is already processed or the current account cannot perform that action; stop.
+- `LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION`: process every listed pending same-applicant, same-date `勤務時間修正`, then reread and prepare the `休暇` approval again. No leave fingerprint or approval click was produced.
+- `LEAVE_APPROVAL_DEPENDENCY_UNCONFIRMED`: the `休暇` applicant or target date was unavailable, so the dependency could not be matched reliably. Stop fail-closed; do not infer identity or date from surrounding text or list order.
 - `APPROVAL_PREVIEW_CHANGED`: no action occurred. Run `prepare-action` again, present the new preview, and obtain new explicit approval.
 - `APPROVAL_ACTION_RESULT_UNKNOWN`: do not retry. Read the application detail and report its state before considering another write.
 - `TOKEN_REFRESH_UNAVAILABLE`: OAuth setup has not completed; do not request tokens in chat.

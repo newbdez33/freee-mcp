@@ -75,6 +75,94 @@ function createFakeBrowser(availableActions) {
   };
 }
 
+const approvalListHeaders = [
+  "ステータス",
+  "No.",
+  "申請者（代理申請者）",
+  "種別",
+  "対象日",
+  "申請内容",
+  "申請理由",
+  "申請日",
+  "現在の承認者",
+  "チェック結果",
+];
+
+function approvalSummary(overrides = {}) {
+  return {
+    id: "7200",
+    status: "未承認",
+    applicant: "Applicant A",
+    type: "休暇",
+    targetDate: "2026/08/20",
+    content: "有休 全休",
+    reason: "Personal",
+    appliedAt: "2026/08/19",
+    currentApprover: "Approver A",
+    checkResult: null,
+    ...overrides,
+  };
+}
+
+function approvalDetail(applicationOverrides = {}, detailOverrides = {}) {
+  return {
+    application: approvalSummary(applicationOverrides),
+    fields: [],
+    tables: [],
+    detailLines: ["Application detail"],
+    workTimeChange: null,
+    availableActions: ["approve", "return"],
+    ...detailOverrides,
+  };
+}
+
+function installPendingApprovalPages(client, pages) {
+  const pageReads = [];
+  const totalCount = pages.reduce((count, page) => count + page.length, 0);
+  let currentPage = 1;
+  const pageInfo = (page) => ({
+    page,
+    pageCount: pages.length,
+    totalCount,
+    perPage: 1,
+    rowCount: pages[page - 1].length,
+    requestCodes: pages[page - 1].map(({ id }) => id),
+  });
+  client.ensureAuthenticated = async () => {};
+  client.openApprovals = async () => {};
+  client.selectApprovalFilter = async (status) => {
+    assert.equal(status, "pending");
+    currentPage = 1;
+    return pageInfo(1);
+  };
+  client.selectApprovalPage = async (status, page, current) => {
+    assert.equal(status, "pending");
+    assert.equal(page, current.page + 1);
+    currentPage = page;
+    return pageInfo(page);
+  };
+  client.readApprovalListSnapshot = async () => {
+    pageReads.push(currentPage);
+    return {
+      headers: approvalListHeaders,
+      rows: pages[currentPage - 1].map((application) => [
+        application.status,
+        application.id,
+        application.applicant ?? "-",
+        application.type,
+        application.targetDate ?? "-",
+        application.content ?? "-",
+        application.reason ?? "-",
+        application.appliedAt ?? "-",
+        application.currentApprover ?? "-",
+        application.checkResult ?? "-",
+      ]),
+      pageCount: pages.length,
+    };
+  };
+  return { pageReads };
+}
+
 function createFakeApprovalBrowser() {
   const state = {
     approvalTabSelected: false,
@@ -739,6 +827,9 @@ test("Playwright monthly approval commit stops before page access without confir
 
 test("Playwright monthly approval commit reopens the unchanged application before one action", async () => {
   const { client } = createFakeBrowser([]);
+  client.readAllPendingApprovals = async () => {
+    throw new Error("monthly approval must not run the leave dependency check");
+  };
   const detail = {
     application: {
       id: "101",
@@ -905,6 +996,287 @@ test("Playwright approval detail stops when its async snapshot never settles", a
   assert.equal(snapshotReads, 11);
 });
 
+test("Playwright leave approval prepare reads every pending page and reports all same-day correction blockers", async () => {
+  const { client, state } = createFakeBrowser([]);
+  const leave = approvalDetail({ id: "7200" });
+  let detailReads = 0;
+  client.getApprovalDetail = async (id) => {
+    assert.equal(id, "7200");
+    detailReads += 1;
+    return leave;
+  };
+  const firstCorrection = approvalSummary({
+    id: "7201",
+    type: "勤務時間修正",
+    content: "09:30 - 18:30",
+  });
+  const differentApplicant = approvalSummary({
+    id: "7202",
+    type: "勤務時間修正",
+    applicant: "Applicant B",
+  });
+  const deletionCorrection = approvalSummary({
+    id: "7203",
+    type: "勤務時間修正",
+    content: "勤務時間を削除",
+    appliedAt: "2026/08/20",
+    workTimeChange: null,
+  });
+  const { pageReads } = installPendingApprovalPages(client, [
+    [firstCorrection],
+    [differentApplicant],
+    [deletionCorrection],
+  ]);
+
+  await assert.rejects(
+    client.prepareApprovalAction("7200", "approve"),
+    (error) => {
+      assert.equal(error.code, "LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION");
+      assert.match(error.message, /must be processed first/);
+      assert.deepEqual(error.details, {
+        leaveApplication: {
+          id: "7200",
+          applicant: "Applicant A",
+          targetDate: "2026/08/20",
+        },
+        blockingWorkTimeCorrections: [
+          {
+            id: "7201",
+            status: "未承認",
+            content: "09:30 - 18:30",
+            appliedAt: "2026/08/19",
+          },
+          {
+            id: "7203",
+            status: "未承認",
+            content: "勤務時間を削除",
+            appliedAt: "2026/08/20",
+          },
+        ],
+      });
+      return true;
+    },
+  );
+
+  assert.deepEqual(pageReads, [1, 2, 3]);
+  assert.equal(detailReads, 1);
+  assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright leave approval prepare does not block on a different applicant or target date", async () => {
+  const { client } = createFakeBrowser([]);
+  const leave = approvalDetail({ id: "7210" });
+  let detailReads = 0;
+  client.getApprovalDetail = async () => {
+    detailReads += 1;
+    return structuredClone(leave);
+  };
+  const { pageReads } = installPendingApprovalPages(client, [[
+    approvalSummary({ id: "7211", type: "勤務時間修正", applicant: "Applicant B" }),
+  ], [
+    approvalSummary({ id: "7212", type: "勤務時間修正", targetDate: "2026/08/21" }),
+  ]]);
+
+  const prepared = await client.prepareApprovalAction("7210", "approve");
+
+  assert.match(prepared.fingerprint, /^[a-f0-9]{64}$/);
+  assert.deepEqual(pageReads, [1, 2]);
+  assert.equal(detailReads, 2);
+});
+
+test("Playwright leave return and work-time correction approval skip the leave dependency rule", async () => {
+  const { client } = createFakeBrowser([]);
+  let dependencyReads = 0;
+  client.readAllPendingApprovals = async () => {
+    dependencyReads += 1;
+    return [approvalSummary({ id: "7222", type: "勤務時間修正" })];
+  };
+  const leave = approvalDetail({ id: "7220" });
+  client.getApprovalDetail = async () => leave;
+
+  const returned = await client.prepareApprovalAction("7220", "return");
+  assert.equal(returned.action, "return");
+
+  const correction = approvalDetail({
+    id: "7221",
+    type: "勤務時間修正",
+    content: "勤務時間を削除",
+  });
+  client.getApprovalDetail = async () => correction;
+  const approvedCorrection = await client.prepareApprovalAction("7221", "approve");
+  assert.equal(approvedCorrection.action, "approve");
+  assert.equal(dependencyReads, 0);
+});
+
+test("Playwright leave approval commit stops when a correction appears after prepare", async () => {
+  const { client, state } = createFakeBrowser([]);
+  const leave = approvalDetail({ id: "7230" });
+  client.getApprovalDetail = async () => structuredClone(leave);
+  let dependencyReads = 0;
+  client.readAllPendingApprovals = async () => {
+    dependencyReads += 1;
+    return dependencyReads === 1 ? [] : [approvalSummary({
+      id: "7231",
+      type: "勤務時間修正",
+      content: "勤務時間を削除",
+      workTimeChange: null,
+    })];
+  };
+  let commits = 0;
+  client.commitOpenApprovalAction = async () => {
+    commits += 1;
+  };
+
+  const prepared = await client.prepareApprovalAction("7230", "approve");
+  await assert.rejects(
+    client.commitApprovalAction("7230", "approve", prepared.fingerprint, true),
+    (error) => error.code === "LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION",
+  );
+
+  assert.equal(dependencyReads, 2);
+  assert.equal(commits, 0);
+  assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright leave approval fails closed when applicant or target date is unavailable", async () => {
+  for (const [field, value] of [["applicant", null], ["targetDate", null]]) {
+    const { client, state } = createFakeBrowser([]);
+    const leave = approvalDetail({ id: "7240", [field]: value });
+    client.getApprovalDetail = async () => leave;
+    let dependencyReads = 0;
+    client.readAllPendingApprovals = async () => {
+      dependencyReads += 1;
+      return [];
+    };
+
+    await assert.rejects(
+      client.prepareApprovalAction("7240", "approve"),
+      (error) => error.code === "LEAVE_APPROVAL_DEPENDENCY_UNCONFIRMED"
+        && error.details.missingFields.includes(field),
+    );
+    await assert.rejects(
+      client.commitApprovalAction(
+        "7240",
+        "approve",
+        createApprovalFingerprint(leave, "approve"),
+        true,
+      ),
+      (error) => error.code === "LEAVE_APPROVAL_DEPENDENCY_UNCONFIRMED"
+        && error.details.missingFields.includes(field),
+    );
+    assert.equal(dependencyReads, 0);
+    assert.deepEqual(state.clicks, []);
+  }
+});
+
+test("Playwright leave approval reopens the exact unchanged target after each dependency scan", async () => {
+  const { client } = createFakeBrowser([]);
+  const leave = approvalDetail({ id: "7250" });
+  let location = "start";
+  let detailReads = 0;
+  client.getApprovalDetail = async (id) => {
+    assert.equal(id, "7250");
+    detailReads += 1;
+    location = `detail:${id}`;
+    return structuredClone(leave);
+  };
+  let dependencyReads = 0;
+  client.readAllPendingApprovals = async () => {
+    dependencyReads += 1;
+    location = "pending:last-page";
+    return [];
+  };
+  let commits = 0;
+  client.commitOpenApprovalAction = async (id, action, before, fingerprint) => {
+    commits += 1;
+    assert.equal(location, "detail:7250");
+    assert.equal(id, "7250");
+    assert.equal(action, "approve");
+    assert.deepEqual(before, leave);
+    assert.match(fingerprint, /^[a-f0-9]{64}$/);
+    return {
+      id,
+      action,
+      verified: true,
+      result: {
+        ...before,
+        application: { ...before.application, status: "承認済" },
+        availableActions: [],
+      },
+    };
+  };
+
+  const prepared = await client.prepareApprovalAction("7250", "approve");
+  const result = await client.commitApprovalAction(
+    "7250",
+    "approve",
+    prepared.fingerprint,
+    true,
+  );
+
+  assert.equal(result.verified, true);
+  assert.equal(result.result.application.status, "承認済");
+  assert.equal(dependencyReads, 2);
+  assert.equal(detailReads, 4);
+  assert.equal(commits, 1);
+});
+
+test("Playwright leave approval never commits if the reopened target differs after pagination", async () => {
+  const { client, state } = createFakeBrowser([]);
+  const leave = approvalDetail({ id: "7260" });
+  const wrongTarget = approvalDetail({ id: "7261" });
+  let detailReads = 0;
+  client.getApprovalDetail = async () => {
+    detailReads += 1;
+    return detailReads === 1 ? leave : wrongTarget;
+  };
+  client.readAllPendingApprovals = async () => [];
+  let commits = 0;
+  client.commitOpenApprovalAction = async () => {
+    commits += 1;
+  };
+
+  await assert.rejects(
+    client.commitApprovalAction(
+      "7260",
+      "approve",
+      createApprovalFingerprint(leave, "approve"),
+      true,
+    ),
+    (error) => error.code === "APPROVAL_PREVIEW_CHANGED",
+  );
+  assert.equal(commits, 0);
+  assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright leave approval never commits if the action becomes unavailable after pagination", async () => {
+  const { client, state } = createFakeBrowser([]);
+  const leave = approvalDetail({ id: "7270" });
+  const unavailable = approvalDetail({ id: "7270" }, { availableActions: ["return"] });
+  let detailReads = 0;
+  client.getApprovalDetail = async () => {
+    detailReads += 1;
+    return detailReads === 1 ? leave : unavailable;
+  };
+  client.readAllPendingApprovals = async () => [];
+  let commits = 0;
+  client.commitOpenApprovalAction = async () => {
+    commits += 1;
+  };
+
+  await assert.rejects(
+    client.commitApprovalAction(
+      "7270",
+      "approve",
+      createApprovalFingerprint(leave, "approve"),
+      true,
+    ),
+    (error) => error.code === "APPROVAL_ACTION_UNAVAILABLE",
+  );
+  assert.equal(commits, 0);
+  assert.deepEqual(state.clicks, []);
+});
+
 test("Playwright personal application list uses the employee returned-state filter", async () => {
   const { client, state } = createFakePersonalApplicationBrowser();
   const result = await client.getPersonalApplications("returned", 1);
@@ -928,6 +1300,7 @@ test("Playwright approval commit stops before page access without explicit confi
 
 test("Playwright approval commit stops when the prepared detail fingerprint changed", async () => {
   const { client, state } = createFakeBrowser([]);
+  client.readAllPendingApprovals = async () => [];
   client.getApprovalDetail = async () => ({
     application: {
       id: "1234",
@@ -974,10 +1347,11 @@ test("Playwright approval commit reports unknown when the item disappears from b
     detailLines: ["申請内容"],
     availableActions: ["approve", "return"],
   };
+  client.readAllPendingApprovals = async () => [];
   let detailReads = 0;
   client.getApprovalDetail = async () => {
     detailReads += 1;
-    if (detailReads === 1) {
+    if (detailReads <= 2) {
       return detail;
     }
     throw new CliError("APPROVAL_NOT_FOUND", "missing after click", { exitCode: 2 });

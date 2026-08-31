@@ -54,6 +54,8 @@ export interface BrowserApprovalWorkTimeChange {
   after: BrowserApprovalWorkTimeValue;
 }
 
+const pendingApprovalStatuses = new Set(["未承認", "申請中"]);
+
 export function parseApprovalListSnapshot(snapshot: ApprovalListSnapshot): {
   pageCount: number;
   applications: BrowserApprovalSummary[];
@@ -207,6 +209,20 @@ export function parseApprovalWorkTimeChange(
       breakEnd: breakChange.after?.end ?? null,
     },
   };
+}
+
+export function findBlockingPendingWorkTimeCorrections(
+  leaveApplication: Pick<BrowserApprovalSummary, "applicant" | "targetDate">,
+  applications: readonly BrowserApprovalSummary[],
+): BrowserApprovalSummary[] {
+  if (leaveApplication.applicant === null || leaveApplication.targetDate === null) {
+    return [];
+  }
+  return applications.filter((application) =>
+    pendingApprovalStatuses.has(application.status)
+      && application.type === "勤務時間修正"
+      && application.applicant === leaveApplication.applicant
+      && application.targetDate === leaveApplication.targetDate);
 }
 
 export function createApprovalFingerprint(

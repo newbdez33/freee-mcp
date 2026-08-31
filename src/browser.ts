@@ -7,6 +7,7 @@ import { chromium, type BrowserContext, type Locator, type Page, type Response }
 import { clockActionMap, type ClockAction } from "./attendance.js";
 import {
   createApprovalFingerprint,
+  findBlockingPendingWorkTimeCorrections,
   getApprovalRowOffset,
   parseApprovalPageInfo,
   parseApprovalListSnapshot,
@@ -1068,6 +1069,76 @@ export class FreeeBrowserClient {
     };
   }
 
+  private async readAllPendingApprovals(): Promise<BrowserApprovalSummary[]> {
+    await this.ensureAuthenticated();
+    await this.openApprovals();
+    const initial = await this.selectApprovalFilter("pending");
+    const applications: BrowserApprovalSummary[] = [];
+    let current = initial;
+    const lastPage = Math.max(1, initial.pageCount);
+    for (let page = 1; page <= lastPage; page += 1) {
+      if (page > 1) {
+        current = await this.selectApprovalPage("pending", page, current);
+      }
+      if (current.pageCount !== initial.pageCount
+          || current.totalCount !== initial.totalCount
+          || current.perPage !== initial.perPage) {
+        throw new CliError(
+          "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+          "The pending approval queue changed while every page was being checked. No action was taken; reread the application and try again.",
+          {
+            details: {
+              initial: {
+                pageCount: initial.pageCount,
+                totalCount: initial.totalCount,
+                perPage: initial.perPage,
+              },
+              current: {
+                page: current.page,
+                pageCount: current.pageCount,
+                totalCount: current.totalCount,
+                perPage: current.perPage,
+              },
+            },
+            exitCode: 2,
+          },
+        );
+      }
+      const parsed = parseApprovalListSnapshot(await this.readApprovalListSnapshot());
+      if (parsed.applications.length !== current.rowCount) {
+        throw new CliError(
+          "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+          "The pending approval page did not match the synchronized freee response. No action was taken.",
+          {
+            details: {
+              page: current.page,
+              responseRowCount: current.rowCount,
+              parsedRowCount: parsed.applications.length,
+            },
+            exitCode: 2,
+          },
+        );
+      }
+      applications.push(...parsed.applications);
+    }
+    if (applications.length !== initial.totalCount
+        || new Set(applications.map((application) => application.id)).size !== applications.length) {
+      throw new CliError(
+        "BROWSER_APPROVAL_PAGE_UNEXPECTED",
+        "The complete pending approval queue could not be verified without missing or duplicate applications. No action was taken.",
+        {
+          details: {
+            pageCount: initial.pageCount,
+            expectedCount: initial.totalCount,
+            applicationCount: applications.length,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    return applications;
+  }
+
   async getApprovalDetail(id: string): Promise<BrowserApprovalDetail> {
     await this.ensureAuthenticated();
     await this.openApprovals();
@@ -1206,13 +1277,19 @@ export class FreeeBrowserClient {
     fingerprint: string;
     preview: BrowserApprovalDetail;
   }> {
-    const preview = await this.getApprovalDetail(id);
+    let preview = await this.getApprovalDetail(id);
     if (!preview.availableActions.includes(action)) {
       throw new CliError(
         "APPROVAL_ACTION_UNAVAILABLE",
         `The requested approval action '${action}' is not currently available in freee.`,
         { details: { id, action, availableActions: preview.availableActions }, exitCode: 2 },
       );
+    }
+    if (this.requiresLeaveApprovalDependencyCheck(preview, action)) {
+      await this.assertLeaveApprovalDependenciesClear(preview);
+      const reopened = await this.getApprovalDetail(id);
+      this.assertApprovalUnchangedAfterDependencyCheck(preview, reopened, action);
+      preview = reopened;
     }
     return { action, fingerprint: createApprovalFingerprint(preview, action), preview };
   }
@@ -1235,15 +1312,7 @@ export class FreeeBrowserClient {
         { details: { id, action }, exitCode: 2 },
       );
     }
-    const before = await this.getApprovalDetail(id);
-    const currentFingerprint = createApprovalFingerprint(before, action);
-    if (fingerprint !== currentFingerprint) {
-      throw new CliError(
-        "APPROVAL_PREVIEW_CHANGED",
-        "The application details or requested action changed after preview. No action was taken; prepare a new preview.",
-        { details: { id, action, currentFingerprint }, exitCode: 2 },
-      );
-    }
+    let before = await this.getApprovalDetail(id);
     if (!before.availableActions.includes(action)) {
       throw new CliError(
         "APPROVAL_ACTION_UNAVAILABLE",
@@ -1252,7 +1321,120 @@ export class FreeeBrowserClient {
       );
     }
 
+    if (this.requiresLeaveApprovalDependencyCheck(before, action)) {
+      await this.assertLeaveApprovalDependenciesClear(before);
+      const reopened = await this.getApprovalDetail(id);
+      this.assertApprovalUnchangedAfterDependencyCheck(before, reopened, action);
+      before = reopened;
+    }
+
+    const currentFingerprint = createApprovalFingerprint(before, action);
+    if (fingerprint !== currentFingerprint) {
+      throw new CliError(
+        "APPROVAL_PREVIEW_CHANGED",
+        "The application details or requested action changed after preview. No action was taken; prepare a new preview.",
+        { details: { id, action, currentFingerprint }, exitCode: 2 },
+      );
+    }
+
     return this.commitOpenApprovalAction(id, action, before, fingerprint);
+  }
+
+  private requiresLeaveApprovalDependencyCheck(
+    detail: BrowserApprovalDetail,
+    action: BrowserApprovalAction,
+  ): boolean {
+    return action === "approve" && detail.application.type === "休暇";
+  }
+
+  private async assertLeaveApprovalDependenciesClear(
+    detail: BrowserApprovalDetail,
+  ): Promise<void> {
+    const leaveApplication = detail.application;
+    const missingFields = [
+      ...(leaveApplication.applicant === null ? ["applicant"] : []),
+      ...(leaveApplication.targetDate === null ? ["targetDate"] : []),
+    ];
+    if (missingFields.length > 0) {
+      throw new CliError(
+        "LEAVE_APPROVAL_DEPENDENCY_UNCONFIRMED",
+        "The leave approval dependency could not be confirmed because the application is missing a reliable applicant or target date. No action was taken; reread and inspect the leave application before preparing approval again.",
+        {
+          details: {
+            leaveApplication: {
+              id: leaveApplication.id,
+              applicant: leaveApplication.applicant,
+              targetDate: leaveApplication.targetDate,
+            },
+            missingFields,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+
+    const pendingApplications = await this.readAllPendingApprovals();
+    const blockers = findBlockingPendingWorkTimeCorrections(
+      leaveApplication,
+      pendingApplications,
+    );
+    if (blockers.length > 0) {
+      throw new CliError(
+        "LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION",
+        "The leave application cannot be approved while pending 勤務時間修正 applications exist for the same applicant and target date. These 勤務時間修正 applications must be processed first; then reread and prepare the leave approval again.",
+        {
+          details: {
+            leaveApplication: {
+              id: leaveApplication.id,
+              applicant: leaveApplication.applicant,
+              targetDate: leaveApplication.targetDate,
+            },
+            blockingWorkTimeCorrections: blockers.map((blocker) => ({
+              id: blocker.id,
+              status: blocker.status,
+              content: blocker.content,
+              appliedAt: blocker.appliedAt,
+            })),
+          },
+          exitCode: 2,
+        },
+      );
+    }
+  }
+
+  private assertApprovalUnchangedAfterDependencyCheck(
+    before: BrowserApprovalDetail,
+    reopened: BrowserApprovalDetail,
+    action: BrowserApprovalAction,
+  ): void {
+    if (!reopened.availableActions.includes(action)) {
+      throw new CliError(
+        "APPROVAL_ACTION_UNAVAILABLE",
+        `The requested approval action '${action}' is no longer available in freee.`,
+        {
+          details: {
+            id: before.application.id,
+            action,
+            availableActions: reopened.availableActions,
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    if (JSON.stringify(reopened) !== JSON.stringify(before)) {
+      throw new CliError(
+        "APPROVAL_PREVIEW_CHANGED",
+        "The application changed while checking leave approval dependencies. No action was taken; prepare a new preview.",
+        {
+          details: {
+            id: before.application.id,
+            action,
+            currentFingerprint: createApprovalFingerprint(reopened, action),
+          },
+          exitCode: 2,
+        },
+      );
+    }
   }
 
   private async commitOpenApprovalAction(

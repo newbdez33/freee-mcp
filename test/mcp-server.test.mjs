@@ -163,6 +163,14 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
       listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action").annotations.destructiveHint,
       true,
     );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_approval_prepare_action").description,
+      /every pending approval-list page/,
+    );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_approval_commit_action").description,
+      /reopens the exact target/,
+    );
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_personal_application_commit_create").annotations.destructiveHint,
       false,
@@ -287,6 +295,53 @@ test("MCP authentication status returns safe local Playwright setup guidance", a
     assert.equal(result.structuredContent.error.code, "WEB_CREDENTIALS_UNAVAILABLE");
     assert.match(result.structuredContent.error.details.setupCommand, /browser configure --confirm/);
     assert.equal(JSON.stringify(result).includes("password"), false);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("MCP returns structured leave approval dependency errors", async () => {
+  const service = createFakeService();
+  service.prepareApprovalAction = async () => {
+    throw new CliError(
+      "LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION",
+      "Process the pending work-time correction first.",
+      {
+        details: {
+          leaveApplication: {
+            id: "7300",
+            applicant: "Applicant A",
+            targetDate: "2026/08/20",
+          },
+          blockingWorkTimeCorrections: [{
+            id: "7301",
+            status: "未承認",
+            content: "勤務時間を削除",
+            appliedAt: "2026/08/20",
+          }],
+        },
+        exitCode: 2,
+      },
+    );
+  };
+  const { client, server } = await connect(service);
+  try {
+    const result = await client.callTool({
+      name: "freee_approval_prepare_action",
+      arguments: { id: "7300", action: "approve" },
+    });
+    assert.equal(result.isError, true);
+    assert.equal(
+      result.structuredContent.error.code,
+      "LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION",
+    );
+    assert.deepEqual(result.structuredContent.error.details.blockingWorkTimeCorrections, [{
+      id: "7301",
+      status: "未承認",
+      content: "勤務時間を削除",
+      appliedAt: "2026/08/20",
+    }]);
   } finally {
     await client.close();
     await server.close();

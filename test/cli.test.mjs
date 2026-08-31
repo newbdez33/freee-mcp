@@ -20,6 +20,7 @@ test("the compiled CLI entry point is runnable without credentials for help", as
   assert.match(result.stdout, /monthly commit-action/);
   assert.match(result.stdout, /requests options/);
   assert.match(result.stdout, /requests prepare-create/);
+  assert.match(result.stdout, /--work-time-action replace\|delete/);
   assert.match(result.stdout, /requests prepare-cancel/);
   assert.match(result.stdout, /requests commit-withdraw/);
   assert.match(result.stdout, /approvals prepare-action/);
@@ -168,6 +169,31 @@ test("personal application creation validates its fields before launching a brow
       assert.equal(error.code, 2);
       const parsed = JSON.parse(error.stderr);
       assert.equal(parsed.error.code, "INVALID_PERSONAL_APPLICATION_TIME");
+      return true;
+    },
+  );
+});
+
+test("personal work-time deletion rejects an unknown action before launching a browser", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "dist/cli.js",
+      "requests",
+      "prepare-create",
+      "--kind",
+      "work-time-correction",
+      "--date",
+      "2026-08-17",
+      "--work-time-action",
+      "remove",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, FREEE_BACKEND: "playwright" },
+    }),
+    (error) => {
+      assert.equal(error.code, 2);
+      const parsed = JSON.parse(error.stderr);
+      assert.equal(parsed.error.code, "INVALID_PERSONAL_APPLICATION_WORK_TIME_ACTION");
       return true;
     },
   );

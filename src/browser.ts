@@ -49,6 +49,7 @@ import {
   createPersonalApplicationCreateFingerprint,
   createPersonalApplicationListFingerprint,
   createPersonalApplicationWithdrawFingerprint,
+  isVerifiedCreatedWorkTimeDeletion,
   normalizePersonalApplicationCreateInput,
   normalizePersonalApplicationReason,
   type BrowserPersonalApplicationCapability,
@@ -747,6 +748,9 @@ export class FreeeBrowserClient {
         { exitCode: 2 },
       );
     }
+    if (prepared.preview.application.workTimeAction === "delete") {
+      await this.assertWorkTimeDeletionOptionSelected();
+    }
     await this.captureDiagnosticScreenshot("personal-application-before-submit");
     try {
       await submit.click({ timeout: this.config.navigationTimeoutMs });
@@ -787,6 +791,30 @@ export class FreeeBrowserClient {
         "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
         `freee returned personal application status '${result.application.status}' after creation. Do not retry; inspect the application before any further write.`,
         { details: { id: result.application.id, status: result.application.status }, exitCode: 2 },
+      );
+    }
+    if (prepared.preview.application.workTimeAction === "delete"
+        && !isVerifiedCreatedWorkTimeDeletion(prepared.preview.application, result.application)) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        "freee did not expose the new application as the exact requested 勤務時間を削除 correction. Do not retry; inspect the application before any further write.",
+        {
+          details: {
+            action: "create",
+            expected: {
+              type: "勤務時間修正",
+              targetDate: prepared.preview.application.date.replaceAll("-", "/"),
+              content: "勤務時間を削除",
+            },
+            actual: {
+              id: result.application.id,
+              type: result.application.type,
+              targetDate: result.application.targetDate,
+              content: result.application.content,
+            },
+          },
+          exitCode: 2,
+        },
       );
     }
     return { action: "create", verified: true, result };
@@ -2505,22 +2533,83 @@ export class FreeeBrowserClient {
   private async fillWorkTimeCorrectionForm(
     application: NormalizedPersonalApplicationCreateInput,
   ): Promise<string> {
-    if (!application.clockIn || !application.clockOut) {
-      throw new CliError(
-        "INVALID_PERSONAL_APPLICATION_TIME",
-        "A work-time correction requires clock-in and clock-out times.",
-        { exitCode: 2 },
-      );
-    }
     await this.selectApplicationDate("#approval-request-date-input", application.date);
-    await this.selectClockTime("出勤時刻", application.clockIn);
-    await this.selectClockTime("退勤時刻", application.clockOut);
-    if (application.breakStart && application.breakEnd) {
-      await this.selectClockTime("休憩開始時刻", application.breakStart);
-      await this.selectClockTime("休憩終了時刻", application.breakEnd);
+    if (application.workTimeAction === "delete") {
+      await this.selectWorkTimeDeletionOption();
+    } else {
+      if (application.workTimeAction !== "replace"
+          || !application.clockIn || !application.clockOut) {
+        throw new CliError(
+          "INVALID_PERSONAL_APPLICATION_TIME",
+          "A replacement work-time correction requires clock-in and clock-out times.",
+          { exitCode: 2 },
+        );
+      }
+      await this.selectClockTime("出勤時刻", application.clockIn);
+      await this.selectClockTime("退勤時刻", application.clockOut);
+      if (application.breakStart && application.breakEnd) {
+        await this.selectClockTime("休憩開始時刻", application.breakStart);
+        await this.selectClockTime("休憩終了時刻", application.breakEnd);
+      }
     }
     await this.page.locator('[data-testid="申請理由"]').fill(application.reason);
+    await this.captureDiagnosticScreenshot("personal-application-fields-complete");
     return this.readPersonalApplicationRoute();
+  }
+
+  private async selectWorkTimeDeletionOption(): Promise<void> {
+    const candidate = await this.getWorkTimeDeletionControl();
+    await candidate.control.check({ timeout: this.config.navigationTimeoutMs });
+    if (!await candidate.control.isChecked()) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_WORK_TIME_DELETE_UNAVAILABLE",
+        "freee did not retain the exact 勤務時間を削除 selection. No application was submitted.",
+        { details: { label: "勤務時間を削除", role: candidate.role }, exitCode: 2 },
+      );
+    }
+  }
+
+  private async assertWorkTimeDeletionOptionSelected(): Promise<void> {
+    const candidate = await this.getWorkTimeDeletionControl();
+    if (!await candidate.control.isChecked()) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_PREVIEW_CHANGED",
+        "The exact 勤務時間を削除 option is no longer selected. No application was submitted; prepare a new preview.",
+        { details: { workTimeAction: "delete" }, exitCode: 2 },
+      );
+    }
+  }
+
+  private async getWorkTimeDeletionControl(): Promise<{
+    role: "radio" | "checkbox";
+    control: Locator;
+  }> {
+    const label = "勤務時間を削除";
+    const candidates = [
+      { role: "radio", control: this.page.getByRole("radio", { name: label, exact: true }) },
+      { role: "checkbox", control: this.page.getByRole("checkbox", { name: label, exact: true }) },
+    ] as const;
+    const counts = await Promise.all(candidates.map(async ({ role, control }) => ({
+      role,
+      count: await control.count(),
+    })));
+    const totalCount = counts.reduce((total, candidate) => total + candidate.count, 0);
+    if (totalCount !== 1) {
+      throw new CliError(
+        "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+        "freee did not expose exactly one radio or checkbox named 勤務時間を削除. No application was submitted.",
+        { details: { label, candidates: counts }, exitCode: 2 },
+      );
+    }
+    const candidate = candidates[counts.findIndex(({ count }) => count === 1)]!;
+    if (!await candidate.control.isVisible() || !await candidate.control.isEnabled()) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_WORK_TIME_DELETE_UNAVAILABLE",
+        "The exact 勤務時間を削除 option is not visible and enabled for the selected date. No application was submitted.",
+        { details: { label, role: candidate.role }, exitCode: 2 },
+      );
+    }
+    return candidate;
   }
 
   private async selectApplicationDate(selector: string, date: string): Promise<void> {

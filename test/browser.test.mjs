@@ -8,6 +8,7 @@ import {
   readPlaywrightRuntimeConfig,
 } from "../dist/browser.js";
 import { createApprovalFingerprint } from "../dist/browser-approvals.js";
+import { normalizePersonalApplicationCreateInput } from "../dist/browser-personal-applications.js";
 import { CliError } from "../dist/errors.js";
 
 const labelsBySelector = new Map([
@@ -1585,6 +1586,203 @@ test("Playwright personal application commits never click without explicit confi
     (error) => error.code === "CONFIRMATION_REQUIRED",
   );
   assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright work-time deletion selects only the exact form option without submitting", async () => {
+  const { client, state } = createFakeBrowser([]);
+  let selected = false;
+  let selectedDate = null;
+  let reason = null;
+  client.selectApplicationDate = async (selector, date) => {
+    assert.equal(selector, "#approval-request-date-input");
+    selectedDate = date;
+  };
+  client.readPersonalApplicationRoute = async () => "勤怠申請";
+  client.captureDiagnosticScreenshot = async () => {};
+  client.page.locator = (selector) => {
+    assert.equal(selector, '[data-testid="申請理由"]');
+    return { async fill(value) { reason = value; } };
+  };
+  client.page.getByRole = (role, options) => {
+    assert.equal(options.name, "勤務時間を削除");
+    assert.equal(options.exact, true);
+    const exists = role === "radio";
+    return {
+      async count() { return exists ? 1 : 0; },
+      async isVisible() { return exists; },
+      async isEnabled() { return exists; },
+      async check() { selected = true; },
+      async isChecked() { return selected; },
+    };
+  };
+
+  const route = await client.fillWorkTimeCorrectionForm(
+    normalizePersonalApplicationCreateInput({
+      kind: "work-time-correction",
+      date: "2026-08-17",
+      workTimeAction: "delete",
+      reason: "Duplicate registered work time",
+    }),
+  );
+
+  assert.equal(route, "勤怠申請");
+  assert.equal(selectedDate, "2026-08-17");
+  assert.equal(reason, "Duplicate registered work time");
+  assert.equal(selected, true);
+  assert.deepEqual(state.clicks, []);
+});
+
+test("Playwright work-time deletion fails closed when the exact option is missing or ambiguous", async () => {
+  for (const availableRoles of [[], ["radio", "checkbox"]]) {
+    const { client, state } = createFakeBrowser([]);
+    client.selectApplicationDate = async () => {};
+    client.page.getByRole = (role, options) => {
+      assert.equal(options.name, "勤務時間を削除");
+      const exists = availableRoles.includes(role);
+      return {
+        async count() { return exists ? 1 : 0; },
+        async isVisible() { return exists; },
+        async isEnabled() { return exists; },
+        async check() { state.clicks.push(role); },
+        async isChecked() { return true; },
+      };
+    };
+    await assert.rejects(
+      client.fillWorkTimeCorrectionForm(normalizePersonalApplicationCreateInput({
+        kind: "work-time-correction",
+        date: "2026-08-17",
+        workTimeAction: "delete",
+      })),
+      (error) => error.code === "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
+    );
+    assert.deepEqual(state.clicks, []);
+  }
+});
+
+test("Playwright work-time deletion commit rechecks the selection before clicking", async () => {
+  const { client } = createFakeBrowser([]);
+  const fingerprint = "9".repeat(64);
+  let clicks = 0;
+  client.preparePersonalApplicationCreate = async () => ({
+    action: "create",
+    fingerprint,
+    preview: {
+      application: normalizePersonalApplicationCreateInput({
+        kind: "work-time-correction",
+        date: "2026-08-17",
+        workTimeAction: "delete",
+      }),
+      typeLabel: "勤務時間修正",
+      route: "勤怠申請",
+      existingFirstPage: { count: 0, fingerprint: "a".repeat(64) },
+    },
+  });
+  client.page.getByRole = (role, options) => {
+    if (role === "button" && options.name === "申請") {
+      return {
+        async count() { return 1; },
+        async isVisible() { return true; },
+        async isEnabled() { return true; },
+        async click() { clicks += 1; },
+      };
+    }
+    const deletion = role === "radio" && options.name === "勤務時間を削除";
+    return {
+      async count() { return deletion ? 1 : 0; },
+      async isVisible() { return deletion; },
+      async isEnabled() { return deletion; },
+      async isChecked() { return false; },
+    };
+  };
+
+  await assert.rejects(
+    client.commitPersonalApplicationCreate({
+      kind: "work-time-correction",
+      date: "2026-08-17",
+      workTimeAction: "delete",
+    }, fingerprint, true),
+    (error) => error.code === "PERSONAL_APPLICATION_PREVIEW_CHANGED",
+  );
+  assert.equal(clicks, 0);
+});
+
+test("Playwright work-time deletion commit verifies the exact new deletion request", async () => {
+  const { client } = createFakeBrowser([]);
+  const fingerprint = "8".repeat(64);
+  let clicks = 0;
+  let selected = true;
+  const application = normalizePersonalApplicationCreateInput({
+    kind: "work-time-correction",
+    date: "2026-08-17",
+    workTimeAction: "delete",
+    reason: "Duplicate registered work time",
+  });
+  client.preparePersonalApplicationCreate = async () => {
+    client.preparedPersonalApplicationFirstPageIds = ["20"];
+    return {
+      action: "create",
+      fingerprint,
+      preview: {
+        application,
+        typeLabel: "勤務時間修正",
+        route: "勤怠申請",
+        existingFirstPage: { count: 1, fingerprint: "a".repeat(64) },
+      },
+    };
+  };
+  client.page.getByRole = (role, options) => {
+    if (role === "button" && options.name === "申請") {
+      return {
+        async count() { return 1; },
+        async isVisible() { return true; },
+        async isEnabled() { return true; },
+        async click() { clicks += 1; selected = false; },
+      };
+    }
+    const deletion = role === "radio" && options.name === "勤務時間を削除";
+    return {
+      async count() { return deletion ? 1 : 0; },
+      async isVisible() { return deletion; },
+      async isEnabled() { return deletion; },
+      async isChecked() { return selected; },
+    };
+  };
+  client.readCurrentPersonalApplicationDetailSnapshot = async () => ({
+    applicationId: "21",
+    fields: [{ label: "申請内容", value: "勤務時間を削除" }],
+    tables: [],
+    detailLines: ["勤務時間を削除"],
+    workTimeChange: null,
+    availableActions: ["withdraw"],
+  });
+  client.getPersonalApplications = async () => ({
+    applications: [{
+      id: "21",
+      status: "申請中",
+      applicant: null,
+      type: "勤務時間修正",
+      targetDate: "2026/08/17",
+      content: "勤務時間を削除",
+      reason: "Duplicate registered work time",
+      appliedAt: "2026/08/16",
+      currentApprover: "Approver A",
+      checkResult: null,
+    }, {
+      id: "20",
+      status: "承認済",
+    }],
+  });
+
+  const result = await client.commitPersonalApplicationCreate({
+    kind: "work-time-correction",
+    date: "2026-08-17",
+    workTimeAction: "delete",
+    reason: "Duplicate registered work time",
+  }, fingerprint, true);
+
+  assert.equal(clicks, 1);
+  assert.equal(result.verified, true);
+  assert.equal(result.result.application.content, "勤務時間を削除");
 });
 
 test("Playwright personal application creation binds its preview and verifies one new item", async () => {

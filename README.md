@@ -114,7 +114,7 @@ This table describes the current `main` branch. “Covered” means the behavior
 | Discover enabled personal application and leave types | Playwright | Complete | Covered | Full-day, timed half-day, special-leave, and correction form variants validated |
 | List, filter, paginate, and inspect personal applications | Playwright | Complete | Covered | Pending/returned/approved/all filters and exact details validated; page 2 pending (`LV-R03`) |
 | Create a leave application | Playwright | Complete, including explicit timed-leave ranges | Covered | Validated (`LV-W05`) |
-| Create a work-time correction | Playwright | Limited to one work segment and one optional complete break pair | Covered | Read-only form variants validated; real commit pending (`LV-W06`) |
+| Create a work-time correction | Playwright | One replacement work segment with one optional complete break pair, or an exact `勤務時間を削除` request | Covered | Replacement form variants validated read-only; deletion covered synthetically; real commit pending (`LV-W06`) |
 | Create an overtime application | Playwright | Not implemented; disabled or unverified forms stop safely | Safe-refusal path covered | Current validation account does not enable the form |
 | Withdraw a pending personal application | Playwright | Complete with prepare/commit fingerprint | Covered | Validated (`LV-W07`) |
 | Cancel an approved personal application | Playwright | Complete; creates and verifies a separate cancellation application | Covered | Validated through final approval (`LV-W09`) |
@@ -179,8 +179,8 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_personal_application_options` | Read-only | Show enabled personal application types and date-specific leave types |
 | `freee_personal_applications_list` | Read-only | List the current employee's pending, returned, approved, or all applications |
 | `freee_personal_application_detail` | Read-only | Read one current-employee application and its available actions |
-| `freee_personal_application_prepare_create` | Read-only preview | Fill and validate a leave or work-time correction form and generate a fingerprint |
-| `freee_personal_application_commit_create` | Write | Revalidate and submit one personal application |
+| `freee_personal_application_prepare_create` | Read-only preview | Fill and validate a leave or work-time correction form, including exact `勤務時間を削除`, and generate a fingerprint |
+| `freee_personal_application_commit_create` | Write | Revalidate and submit one personal application; deletion creates a correction request rather than directly deleting a raw record |
 | `freee_personal_application_prepare_cancel` | Read-only preview | Validate cancellation of one approved personal application and generate a fingerprint |
 | `freee_personal_application_commit_cancel` | Write | Revalidate and create one cancellation application for an approved personal application |
 | `freee_personal_application_prepare_withdraw` | Read-only preview | Generate a withdrawal preview and fingerprint for one pending application |
@@ -251,6 +251,11 @@ npm run freee -- requests commit-create --kind leave --date YYYY-MM-DD \
 npm run freee -- requests prepare-create --kind work-time-correction \
   --date YYYY-MM-DD --clock-in HH:MM --clock-out HH:MM \
   [--break-start HH:MM --break-end HH:MM] [--reason "REASON"]
+npm run freee -- requests prepare-create --kind work-time-correction \
+  --date YYYY-MM-DD --work-time-action delete [--reason "REASON"]
+npm run freee -- requests commit-create --kind work-time-correction \
+  --date YYYY-MM-DD --work-time-action delete [--reason "REASON"] \
+  --fingerprint PREVIEW_SHA256 --confirm
 npm run freee -- requests prepare-cancel --id APPLICATION_NO [--reason "REASON"]
 npm run freee -- requests commit-cancel --id APPLICATION_NO [--reason "REASON"] \
   --fingerprint PREVIEW_SHA256 --confirm
@@ -289,9 +294,9 @@ Monthly writes use the same two-step safety model as other writes. `monthly prep
 
 `requests list` explicitly selects the employee-side `申請` tab and synchronizes each `申請中`, `差戻し`, `承認済`, or `全て` filter with the matching freee response before parsing. `requests detail` searches every employee-side page for one exact application No. and reports `withdraw` when one visible, enabled `申請を取り下げる` button is present or `cancel` when an approved item exposes an exact official `取消申請` link.
 
-Call `requests options` before creating an application. With `--date`, it reads the exact leave types configured by the company for that date. Leave and one-segment work-time correction forms are supported; a work-time correction may include one optional break pair. The current test company does not enable `残業`, so the capability result reports overtime as unavailable and this version does not guess or bypass an unverified overtime form.
+Call `requests options` before creating an application. With `--date`, it reads the exact leave types configured by the company for that date. Leave and work-time correction forms are supported. A replacement correction accepts one work segment and one optional complete break pair. A deletion correction uses `work_time_action=delete` in MCP or `--work-time-action delete` in CLI, forbids all clock and break fields, and selects only the exact `勤務時間を削除` control. It creates a `勤務時間修正` approval request rather than directly deleting a raw day record. The current test company does not enable `残業`, so the capability result reports overtime as unavailable and this version does not guess or bypass an unverified overtime form.
 
-Creation, approved-application cancellation, and pending withdrawal use separate prepare and commit commands. Cancellation prepare binds the original approved application, optional cancellation reason, official `ApprovalRequest::Revoke` form, approval route, and recent application list. Its commit creates and verifies exactly one new cancellation application; it does not claim that the original leave is cancelled until that new request is approved. Creation and cancellation never click the final `申請` during prepare, while withdrawal never clicks `申請を取り下げる`. Every commit reconstructs the same preview, stops on any change, requires explicit current-message approval, clicks once, and verifies the resulting application state. An unknown result is never retried automatically.
+Creation, approved-application cancellation, and pending withdrawal use separate prepare and commit commands. A deletion prepare binds the exact date, `workTimeAction: "delete"`, reason, route, and selected `勤務時間を削除` option. Its commit rebuilds that preview, rechecks the exact selection immediately before clicking, and accepts only one new same-date `勤務時間修正` application whose content is exactly `勤務時間を削除`. Cancellation prepare binds the original approved application, optional cancellation reason, official `ApprovalRequest::Revoke` form, approval route, and recent application list. Its commit creates and verifies exactly one new cancellation application; it does not claim that the original leave is cancelled until that new request is approved. Creation and cancellation never click the final `申請` during prepare, while withdrawal never clicks `申請を取り下げる`. Every commit reconstructs the same preview, stops on any change, requires explicit current-message approval, clicks once, and verifies the resulting application state. An unknown result is never retried automatically.
 
 ## Employee application handling
 

@@ -5,6 +5,7 @@ import {
   createPersonalApplicationCancelFingerprint,
   createPersonalApplicationCreateFingerprint,
   createPersonalApplicationWithdrawFingerprint,
+  isVerifiedCreatedWorkTimeDeletion,
   normalizePersonalApplicationCreateInput,
   normalizePersonalApplicationReason,
 } from "../dist/browser-personal-applications.js";
@@ -20,6 +21,7 @@ test("personal leave input requires a real date and exact leave type", () => {
     date: "2026-08-14",
     leaveType: "有休",
     reason: "私用",
+    workTimeAction: null,
     clockIn: null,
     clockOut: null,
     breakStart: null,
@@ -55,6 +57,7 @@ test("personal leave input requires a real date and exact leave type", () => {
     leaveStart: "13:00",
     leaveEnd: "18:00",
     reason: "",
+    workTimeAction: null,
     clockIn: null,
     clockOut: null,
     breakStart: null,
@@ -84,6 +87,7 @@ test("work-time correction accepts one optional break pair and rejects partial p
     kind: "work-time-correction",
     date: "2026-08-14",
     reason: "",
+    workTimeAction: "replace",
     leaveType: null,
     leaveStart: null,
     leaveEnd: null,
@@ -101,6 +105,75 @@ test("work-time correction accepts one optional break pair and rejects partial p
       breakStart: "12:00",
     }),
     (error) => error.code === "INVALID_PERSONAL_APPLICATION_BREAK",
+  );
+});
+
+test("work-time deletion is explicit, forbids replacement times, and binds verification", () => {
+  const deletion = normalizePersonalApplicationCreateInput({
+    kind: "work-time-correction",
+    date: "2026-08-17",
+    workTimeAction: "delete",
+    reason: "Duplicate registered work time",
+  });
+  assert.deepEqual(deletion, {
+    kind: "work-time-correction",
+    date: "2026-08-17",
+    reason: "Duplicate registered work time",
+    workTimeAction: "delete",
+    leaveType: null,
+    leaveStart: null,
+    leaveEnd: null,
+    clockIn: null,
+    clockOut: null,
+    breakStart: null,
+    breakEnd: null,
+  });
+  assert.throws(
+    () => normalizePersonalApplicationCreateInput({
+      kind: "work-time-correction",
+      date: "2026-08-17",
+      workTimeAction: "delete",
+      clockIn: "09:00",
+    }),
+    (error) => error.code === "INVALID_PERSONAL_APPLICATION_FIELDS",
+  );
+  assert.equal(isVerifiedCreatedWorkTimeDeletion(deletion, {
+    type: "勤務時間修正",
+    targetDate: "2026/08/17",
+    content: "勤務時間を削除",
+  }), true);
+  assert.equal(isVerifiedCreatedWorkTimeDeletion(deletion, {
+    type: "勤務時間修正",
+    targetDate: "2026/08/18",
+    content: "勤務時間を削除",
+  }), false);
+  assert.equal(isVerifiedCreatedWorkTimeDeletion(deletion, {
+    type: "勤務時間修正",
+    targetDate: "2026/08/17",
+    content: "勤務時間を修正",
+  }), false);
+});
+
+test("create fingerprints distinguish replacement from deletion", () => {
+  const common = {
+    typeLabel: "勤務時間修正",
+    route: "勤怠申請",
+    existingFirstPage: { count: 0, fingerprint: "f".repeat(64) },
+  };
+  const replacement = normalizePersonalApplicationCreateInput({
+    kind: "work-time-correction",
+    date: "2026-08-17",
+    clockIn: "09:00",
+    clockOut: "18:00",
+  });
+  const deletion = normalizePersonalApplicationCreateInput({
+    kind: "work-time-correction",
+    date: "2026-08-17",
+    workTimeAction: "delete",
+  });
+  assert.notEqual(
+    createPersonalApplicationCreateFingerprint({ ...common, application: replacement }),
+    createPersonalApplicationCreateFingerprint({ ...common, application: deletion }),
   );
 });
 

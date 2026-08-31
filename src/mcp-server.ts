@@ -7,9 +7,9 @@ import type { FreeeOperations } from "./service.js";
 import { version } from "./version.js";
 
 export const mcpServerInstructions = [
-  "General manager application actions may run individually or under one user-authorized policy. Before a policy run, restate its selection conditions, approve/return mapping, scope and termination, dependency order, and per-item error handling, then obtain one explicit confirmation. During that scope, scan every pending page, evaluate each full detail, prepare and commit matches sequentially, and match fingerprints on the user's behalf. No batch endpoint or per-item confirmation is required. Skip isolated nonmatches or ambiguous items and continue independent work. Never retry an unknown write.",
-  "A general approval policy may cover one pass, repeated scans until no match remains, an explicit range or limit, or a configured recurring automation; it need not pre-enumerate application Nos. or fingerprints. A known pre-click preview error may be reread and prepared again under the same authorization. A leave blocker may be processed first when the policy authorizes it; otherwise skip the leave. Quarantine an unknown item and its dependent leave chain, but continue independent matches. Stop the whole run only when authorization expires or becomes unclear, backend or identity changes, pagination is untrustworthy, or another systemic failure makes continued decisions unsafe.",
-  "Use read tools when they match the user's request. For a 月次勤怠締め manager action, use the dedicated monthly approval tools. Derive its work month from the application's explicit payment month and freee's displayed payment-month/work-month relationship; if either is ambiguous, stop without a review, fingerprint, or write. Never bypass this check with the general approval commit. Never call a clock, monthly, personal-application, or monthly-approval commit tool unless the user's current message explicitly authorizes that one exact real action after reviewing the matching prepare-tool preview. Always prepare first and pass the unchanged fingerprint. The selected API or Playwright backend is exclusive; never fall back. Do not retry an unknown write.",
+  "Manager approvals support user-authorized condition-based batch automation for both general employee applications and dedicated 月次勤怠締め applications. Before a batch run, restate its selection conditions, approve/return mapping, scope and termination, dependency order, and per-item error handling, then obtain one explicit confirmation. The Agent executes the batch internally through sequential single-item prepare, commit, and post-write verification calls and matches every fingerprint on the user's behalf; no per-item confirmation is required. Skip isolated nonmatches or ambiguous items and continue independent work. Never retry an unknown write.",
+  "A manager-approval policy may cover one pass, repeated scans until no match remains, an explicit range or limit, or a configured recurring automation; it need not pre-enumerate application Nos. or fingerprints. Scan every pending source page on each pass. Use the general approval tools for general applications and the dedicated monthly list, review, prepare, and commit tools for 月次勤怠締め. A known pre-click preview error may be reread and prepared again under the same authorization. A leave blocker may be processed first when the policy authorizes it; otherwise skip the leave. Quarantine an unknown item and its dependent leave chain, but continue independent matches. Stop the whole run only when authorization expires or becomes unclear, backend or identity changes, pagination is untrustworthy, or another systemic failure makes continued decisions unsafe.",
+  "Use read tools when they match the user's request. For a 月次勤怠締め manager action, derive its work month from the application's explicit payment month and freee's displayed payment-month/work-month relationship; if either is ambiguous, stop without a review, fingerprint, or write. Never bypass this check with the general approval commit. A manager approval commit requires explicit authorization for either that exact item or a still-active confirmed manager-approval policy. Clock, personal monthly, and personal-application commits still require exact current-message authorization after their matching preview. Always prepare first and pass the unchanged fingerprint. The selected API or Playwright backend is exclusive; never fall back. Do not retry an unknown write.",
   "Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, show the exact setupCommand returned in the error and instruct the user to run it directly in a local interactive terminal; never accept credentials in chat or MCP arguments.",
 ].join(" ");
 
@@ -347,7 +347,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_monthly_approval_prepare_action", {
     title: "Preview a freee monthly attendance approval action",
-    description: "Review one exact 月次勤怠締め application and bind its explicit payment month, freee-verified work month, detail, monthly summary, daily attendance, alerts, automatic checks, and requested approval/return action into a fingerprint. Ambiguous mapping produces no fingerprint; no application is changed.",
+    description: "Review one exact 月次勤怠締め application and bind its explicit payment month, freee-verified work month, detail, monthly summary, daily attendance, alerts, automatic checks, and requested approval/return action into a fingerprint. It supports a confirmed condition-based batch run: the Agent evaluates the complete review and matches the fingerprint without per-item user confirmation. Ambiguous mapping produces no fingerprint; no application is changed.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,
@@ -359,12 +359,12 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_monthly_approval_commit_action", {
     title: "Commit a freee monthly attendance approval action",
-    description: "Approve or return one real 月次勤怠締め application only after recomputing the same payment-month/work-month mapping and matching the complete monthly review and fingerprint. Ambiguous or changed mapping stops before any click. Explicit current-message approval is required; never call directly or retry automatically.",
+    description: "Approve or return one real 月次勤怠締め application after explicit authorization for this exact item or a still-active confirmed condition-based batch policy. The Agent may use this single-item tool sequentially without per-item confirmation, but every call recomputes the payment-month/work-month mapping and matches the complete monthly review and fingerprint. Ambiguous or changed mapping stops before any click; never call without prepare or retry an unknown write.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,
       fingerprint: fingerprintSchema,
-      confirm: z.literal(true).describe("Must be true only after explicit current-message user approval."),
+      confirm: z.literal(true).describe("Must be true only after explicit user authorization for this exact item or for a still-active manager-approval policy whose conditions, approve/return mapping, scope, termination, and error handling were confirmed."),
     },
     annotations: {
       readOnlyHint: false,
@@ -385,7 +385,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_approval_prepare_action", {
     title: "Preview a freee application action",
-    description: "Read and preview one available approval or return action, including any structured 勤務時間修正 before/after comparison, and return a binding fingerprint. It may be used during a confirmed policy run for sequential general approve or return actions; the Agent evaluates the rule and matches each fingerprint without requiring per-item user confirmation. Before approving a 休暇 application, every pending approval-list page is checked for same-applicant, same-date 勤務時間修正 applications; a blocker or an unreliable applicant/date stops this item without a fingerprint. No application is changed.",
+    description: "Read and preview one available approval or return action, including any structured 勤務時間修正 before/after comparison, and return a binding fingerprint. It supports a confirmed condition-based batch run: the Agent evaluates the rule and matches each fingerprint without per-item user confirmation. Before approving a 休暇 application, every pending approval-list page is checked for same-applicant, same-date 勤務時間修正 applications; a blocker or an unreliable applicant/date stops this item without a fingerprint. No application is changed.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,
@@ -395,7 +395,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_approval_commit_action", {
     title: "Commit a freee application action",
-    description: "Change one real application after matching its preview and explicit authorization for this exact item or a still-active confirmed policy run. A policy may map user-defined conditions to approve or return, cover later-discovered matches within its stated scope, and use this single-item tool sequentially without per-item confirmation; the Agent evaluates full detail and matches the fingerprint on the user's behalf. Skip isolated nonmatches or ambiguous items and continue independent work. A known pre-click preview error may be prepared again under the same policy, but an unknown write must never be retried. A 休暇 approval repeats the complete pending 勤務時間修正 dependency check, then reopens the exact target and revalidates its detail, action, and fingerprint before any click.",
+    description: "Change one real application after matching its preview and explicit authorization for this exact item or a still-active confirmed condition-based batch policy. A policy may map user-defined conditions to approve or return, cover later-discovered matches within its stated scope, and use this single-item tool sequentially without per-item confirmation; the Agent evaluates full detail and matches the fingerprint on the user's behalf. Skip isolated nonmatches or ambiguous items and continue independent work. A known pre-click preview error may be prepared again under the same policy, but an unknown write must never be retried. A 休暇 approval repeats the complete pending 勤務時間修正 dependency check, then reopens the exact target and revalidates its detail, action, and fingerprint before any click.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,

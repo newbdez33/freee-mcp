@@ -149,15 +149,17 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
     const instructions = client.getInstructions();
     assert.match(instructions, /Always prepare first/);
     assert.match(instructions, /setupCommand/);
-    assert.match(instructions, /user-authorized policy/);
-    assert.match(instructions, /match fingerprints on the user's behalf/);
+    assert.match(instructions, /user-authorized condition-based batch automation/);
+    assert.match(instructions, /matches every fingerprint on the user's behalf/);
     assert.match(instructions, /approve\/return mapping/);
     assert.match(instructions, /need not pre-enumerate application Nos/);
     assert.match(instructions, /continue independent matches/);
     assert.match(
       instructions.slice(0, 512),
-      /No batch endpoint or per-item confirmation is required/,
+      /support user-authorized condition-based batch automation/,
     );
+    assert.match(instructions, /dedicated monthly list, review, prepare, and commit tools/);
+    assert.doesNotMatch(instructions, /No batch endpoint/);
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_team_status").annotations.readOnlyHint,
       true,
@@ -192,12 +194,20 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
       /stops before any click/,
     );
     assert.match(
+      listed.tools.find((tool) => tool.name === "freee_monthly_approval_prepare_action").description,
+      /confirmed condition-based batch run/,
+    );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action").description,
+      /still-active confirmed condition-based batch policy/,
+    );
+    assert.match(
       listed.tools.find((tool) => tool.name === "freee_approval_prepare_action").description,
       /every pending approval-list page/,
     );
     assert.match(
       listed.tools.find((tool) => tool.name === "freee_approval_prepare_action").description,
-      /confirmed policy run/,
+      /confirmed condition-based batch run/,
     );
     assert.match(
       listed.tools.find((tool) => tool.name === "freee_approval_commit_action").description,
@@ -216,9 +226,14 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
         .inputSchema.properties.confirm.description,
       /conditions, approve\/return mapping, scope, termination, and error handling/,
     );
-    assert.doesNotMatch(
+    assert.match(
       listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action").description,
-      /policy run/,
+      /without per-item confirmation/,
+    );
+    assert.match(
+      listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action")
+        .inputSchema.properties.confirm.description,
+      /conditions, approve\/return mapping, scope, termination, and error handling/,
     );
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_personal_application_commit_create").annotations.destructiveHint,

@@ -6,7 +6,7 @@ Baseline date: 2026-08-14.
 
 The ordered, reversible workflow for the Playwright application and attendance-management cases that the maintainer will execute with a personal account is documented in [`personal-account-live-test-plan.md`](personal-account-live-test-plan.md). Public API validation and real clock commits remain tracked here but are explicitly outside that plan.
 
-The checklist intentionally excludes features that are not implemented, including overtime creation, multiple work segments or breaks, general employee daily detail outside the monthly-approval review, recursive child-department aggregation, deletes, batch actions, and audit logs.
+The checklist intentionally excludes features that are not implemented, including overtime creation, multiple work segments or breaks, general employee daily detail outside the monthly-approval review, recursive child-department aggregation, deletes, persistent batch-policy state, and audit logs. Condition-based manager approval batches are supported through sequential single-item operations, but this checklist validates each real write path separately.
 
 ## Recorded live validation baseline
 
@@ -27,7 +27,7 @@ Partial validation runs are recorded separately:
 
 ## Priority 0: real business-write paths
 
-Every item below requires a dedicated test case, a reviewed prepare result, and explicit confirmation immediately before commit. Never run these as a batch.
+Every item below requires a dedicated test case, a reviewed prepare result, and explicit confirmation immediately before commit. Run these validation cases individually rather than using the supported batch-policy workflow.
 
 - [ ] **LV-W01 — Public API clock commit.** Prepare and commit one legitimate punch during a normal workday, then verify that the returned action disappears and the real freee clock state changes once.
 - [ ] **LV-W02 — Playwright clock commit.** On a different legitimate punch transition, prepare and commit through the Playwright backend and verify the changed state without retrying.

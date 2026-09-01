@@ -11,30 +11,40 @@ Prefer these tools for business operations when the host has loaded the installe
 | API identity | `freee_me` | Read-only; API backend only |
 | Current punch state | `freee_clock_status` | Read-only |
 | Punch preview | `freee_clock_prepare_action` | Read-only; returns fingerprint |
-| Punch execution | `freee_clock_commit_action` | Real write; exact preview, current-message approval, and `confirm: true` required |
+| Punch execution | `freee_clock_commit_action` | Real write; exact action or active scoped policy, matching preview/fingerprint, and `confirm: true` required |
 | Department/month status | `freee_team_status` | Read-only |
 | Personal monthly status | `freee_monthly_status` | Read-only |
 | Monthly submit/withdraw preview | `freee_monthly_prepare_action` | Read-only; returns fingerprint |
-| Monthly submit/withdraw execution | `freee_monthly_commit_action` | Real write; exact preview, current-message approval, and `confirm: true` required |
+| Monthly submit/withdraw execution | `freee_monthly_commit_action` | Real write; exact action or active scoped policy, matching preview/fingerprint, and `confirm: true` required |
 | Personal application capabilities | `freee_personal_application_options` | Read-only; include a date to read exact leave types |
 | Current employee application list | `freee_personal_applications_list` | Read-only; defaults to pending |
 | Current employee application detail | `freee_personal_application_detail` | Read-only; reports pending withdrawal and approved cancellation availability |
 | Leave/correction creation preview | `freee_personal_application_prepare_create` | Read-only form validation; `work_time_action=delete` selects exact `勤務時間を削除`; returns fingerprint |
-| Leave/correction submission | `freee_personal_application_commit_create` | Real application write; exact preview, current-message approval, and `confirm: true` required; deletion is an approval request, not a raw-record delete |
+| Leave/correction submission | `freee_personal_application_commit_create` | Real write; exact action or active scoped policy, matching preview/fingerprint, and `confirm: true` required; deletion is an approval request, not a raw-record delete |
 | Approved-application cancellation preview | `freee_personal_application_prepare_cancel` | Read-only form validation; binds the original application and returns a fingerprint |
-| Approved-application cancellation submission | `freee_personal_application_commit_cancel` | Real write; creates a new cancellation request after exact preview and current-message approval |
+| Approved-application cancellation submission | `freee_personal_application_commit_cancel` | Real write; exact action or active scoped policy, matching preview/fingerprint, and `confirm: true` required |
 | Personal withdrawal preview | `freee_personal_application_prepare_withdraw` | Read-only; returns fingerprint |
-| Personal withdrawal execution | `freee_personal_application_commit_withdraw` | Real write; exact preview, current-message approval, and `confirm: true` required |
+| Personal withdrawal execution | `freee_personal_application_commit_withdraw` | Real write; exact action or active scoped policy, matching preview/fingerprint, and `confirm: true` required |
 | Application list | `freee_approvals_list` | Read-only; defaults to pending |
 | Monthly approval list | `freee_monthly_approvals_list` | Read-only; filters one source page to 月次勤怠締め and returns explicit payment/work periods |
 | Monthly approval review | `freee_monthly_approval_review` | Read-only; verifies the payment/work mapping, exact member summary, daily attendance, alerts, and checks |
 | Monthly approval/return preview | `freee_monthly_approval_prepare_action` | Read-only; binds both mapped periods and the complete monthly review into a fingerprint |
-| Monthly approval/return execution | `freee_monthly_approval_commit_action` | Real single-item write; rechecks the mapping and exact review; exact individual confirmation or an active confirmed manager-approval policy, matching fingerprint, and `confirm: true` required |
+| Monthly approval/return execution | `freee_monthly_approval_commit_action` | Real single-item write; exact action or active scoped policy, verified payment/work mapping, matching review/fingerprint, and `confirm: true` required |
 | Application detail | `freee_approval_detail` | Read-only |
 | Approval/return preview | `freee_approval_prepare_action` | Read-only; returns fingerprint |
-| Approval/return execution | `freee_approval_commit_action` | Real single-item write; exact individual confirmation or an active confirmed policy run, matching fingerprint, and `confirm: true` required |
+| Approval/return execution | `freee_approval_commit_action` | Real single-item write; exact action or active scoped policy, matching preview/fingerprint, and `confirm: true` required |
 
 Use `structuredContent.data` on success. Treat `structuredContent.error` as final for the selected execution surface. Do not call a CLI equivalent after an MCP error to bypass permissions, state checks, ambiguity, or confirmation. Authentication configuration is intentionally local and interactive. In a Claude plugin installation, never assume a repository working directory: use the exact `setupCommand` returned by MCP or the plugin-resolved CLI form below.
+
+## Business-write authorization
+
+A precise instruction may authorize one exact write or a scoped set of writes before prepare. A scoped policy can cover any supported business commit category in the table above and can define identity/company, action, date or period range, candidate conditions, reason/comment, a maximum or termination rule, per-item failure handling, and an expressly authorized follow-up chain. One policy can cover one pass, repeated scans, an explicit list or range, or a configured recurring invocation. It does not need precomputed application Nos. or fingerprints.
+
+Use the normal single-item tools sequentially. Read authoritative state, prepare one target, evaluate its complete preview against the exact instruction or policy, retain and match the fingerprint on the user's behalf, commit with `confirm: true`, and verify the result. `confirm: true` and CLI `--confirm` assert that match; they do not require a separate user prompt after prepare. If the original instruction already precisely says what to execute, continue. Ask once only when an ambiguity would materially alter a write.
+
+A policy cannot silently broaden itself. Creating or submitting a personal application does not authorize manager approval unless the final requested outcome expressly includes that chain. Inspection, implementation, testing, and vague assistance requests authorize no real write. Credential, OAuth, Keychain, and browser-configuration changes also require their own explicit authorization.
+
+Known pre-click preview-change errors mean no write occurred. Reread, reprepare, and continue under the same authorization only when the new preview still matches. Never retry an unknown or post-click-indeterminate write. Verify it with read-only tools, quarantine the unresolved target and dependent chain, and continue only with independent items when safe.
 
 ## CLI commands
 
@@ -120,7 +130,7 @@ npm run freee -- requests detail --id APPLICATION_NO
 
 `team status --date` currently accepts a date only when its month matches the month selected by freee. `--company-id` and `--group-id` are not accepted in the Playwright branch; the CLI uses the company and visible management range already selected by freee and never guesses another one. `me` is not implemented for Playwright.
 
-`monthly status --period` selects and reads that personal work month in freee's attendance calendar. Playwright derives the matching payment month from freee's currently displayed payment-month/work-month pair, uses the bounded official year/month navigator, and verifies both resulting months before parsing. Omitting `--period` reads the currently selected month. It returns `unsubmitted`, `pending`, `approved`, or `returned`, preserves the corresponding freee label, identifies the exact matching monthly application when present, lists only currently available actions, and returns visible calendar warnings. Present every warning and stop before commit while warnings remain unless the user has resolved or explicitly reviewed them in freee.
+`monthly status --period` selects and reads that personal work month in freee's attendance calendar. Playwright derives the matching payment month from freee's currently displayed payment-month/work-month pair, uses the bounded official year/month navigator, and verifies both resulting months before parsing. Omitting `--period` reads the currently selected month. It returns `unsubmitted`, `pending`, `approved`, or `returned`, preserves the corresponding freee label, identifies the exact matching monthly application when present, lists only currently available actions, and returns visible calendar warnings. Evaluate every warning against the exact instruction or active policy; an uncovered warning stops that item.
 
 ## Monthly attendance actions
 
@@ -133,7 +143,7 @@ npm run freee -- monthly prepare-action \
 
 For `submit`, the preview opens the creation form and returns the selected work period, target pay month, application route, approval steps, checks, and SHA-256 fingerprint without clicking the final `申請` button. For `withdraw`, it opens the exact pending monthly application and verifies one enabled `申請を取り下げる` button without clicking it.
 
-Only after the current user message explicitly approves that exact period and action, use the unchanged values:
+When the exact period and action or an active scoped policy is authorized, use the unchanged values:
 
 ```bash
 npm run freee -- monthly commit-action \
@@ -189,7 +199,7 @@ npm run freee -- requests prepare-create \
   --work-time-action delete [--reason "REASON"]
 ```
 
-The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. For deletion, it requires exactly one visible, enabled radio or checkbox named `勤務時間を削除`, selects it, and binds `workTimeAction: "delete"` into the preview. Missing, disabled, or ambiguous controls stop without submission. When the selected leave type exposes a time range, both `--leave-start` and `--leave-end` are required and are bound into the preview; default `00:00` values are never accepted. Only after the current user message approves that exact preview, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`.
+The preview fills the official form, selects values through freee controls, verifies the approval route, and returns a fingerprint without clicking `申請`. For deletion, it requires exactly one visible, enabled radio or checkbox named `勤務時間を削除`, selects it, and binds `workTimeAction: "delete"` into the preview. Missing, disabled, or ambiguous controls stop without submission. When the selected leave type exposes a time range, both `--leave-start` and `--leave-end` are required and are bound into the preview; default `00:00` values are never accepted. When the preview matches the exact instruction or active scoped policy, repeat every unchanged field with `commit-create`, its fingerprint, and `--confirm`; an authorized date set is processed through one complete create flow per date without per-date prompts.
 
 ```bash
 npm run freee -- requests commit-create \
@@ -210,7 +220,7 @@ npm run freee -- requests commit-cancel \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-Cancellation prepare requires the exact approved detail to expose `cancel`, validates that `取消申請` points to the official `ApprovalRequest::Revoke` form for the same original No., fills the optional reason, verifies the approval route, and binds the recent application list into the fingerprint. Cancellation commit submits once and must identify exactly one new `申請中`, `未承認`, or `承認済` cancellation application. The result application No. belongs to the new cancellation request, not the original leave. If it remains pending, approving it is a separate manager write requiring its own approval preview and current-message confirmation. Do not report the original leave as cancelled merely because the cancellation request was created.
+Cancellation prepare requires the exact approved detail to expose `cancel`, validates that `取消申請` points to the official `ApprovalRequest::Revoke` form for the same original No., fills the optional reason, verifies the approval route, and binds the recent application list into the fingerprint. Cancellation commit submits once and must identify exactly one new `申請中`, `未承認`, or `承認済` cancellation application. The result application No. belongs to the new cancellation request, not the original leave. If it remains pending, approving it is a separate manager write and is authorized only when the original final outcome or another active policy expressly covers that follow-up. Do not report the original leave as cancelled merely because the cancellation request was created.
 
 Prepare and commit a withdrawal separately:
 
@@ -240,7 +250,7 @@ The list filters each synchronized source approval page to monthly closing appli
 
 The review requires the application type to be exactly `月次勤怠締め` or `月次勤怠締め申請` and the application content to identify one payment month consistent with its `対象日`. It derives the work month from freee's currently displayed payment/work pair, then selects and verifies the exact target pair on the attendance monitor, maps the applicant and department to one unique visible member, opens the official employee attendance link, verifies the same pair again, and parses one unique daily attendance table. It returns `paymentPeriod`, work `period`, application detail, member monthly summary, every daily row, per-day alerts, page warnings, and consolidated automatic checks. `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`, ambiguous or failed period navigation, a duplicate member, a missing official link, or an ambiguous table stops without a review fingerprint or write.
 
-The prepare fingerprint binds the entire review and requested action. For an individual action, commit once only after the current user message explicitly approves that exact preview. A confirmed condition-based manager-approval policy may instead authorize each matching monthly item without per-item confirmation; the Agent must still prepare, retain, and validate every fingerprint separately:
+The prepare fingerprint binds the entire review and requested action. An exact instruction or active scoped business policy may authorize the commit without a second prompt after prepare; the Agent must still retain and validate every fingerprint separately:
 
 ```bash
 npm run freee -- monthly-approvals commit-action \
@@ -248,7 +258,7 @@ npm run freee -- monthly-approvals commit-action \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-Commit reconstructs the complete review, including the same explicit payment month and freee-verified work month, reopens the exact application, requires unchanged detail and action availability, clicks one `承認` or `申請者へ差し戻す` button, and verifies `承認済` or `差戻し`. A changed or ambiguous mapping stops before the click. Never use the general approval commit to bypass a monthly review failure. Never retry an unknown result. Condition-based batch monthly approval is supported through these sequential single-item review, prepare, commit, and verification calls.
+Commit reconstructs the complete review, including the same explicit payment month and freee-verified work month, reopens the exact application, requires unchanged detail and action availability, clicks one `承認` or `申請者へ差し戻す` button, and verifies `承認済` or `差戻し`. A changed or ambiguous mapping stops before the click. Never use the general approval commit to bypass a monthly review failure. Never retry an unknown result. Conditional monthly approval is supported through sequential single-item review, prepare, commit, and verification calls.
 
 ## Employee application actions
 
@@ -261,7 +271,7 @@ npm run freee -- approvals prepare-action \
 
 The command succeeds only when that exact action is currently available. Before an `approve` action for type `休暇`, it reads every pending manager-approval page and requires no pending `勤務時間修正` with the exact same applicant and target date. A matching correction blocks without a fingerprint even when its structured `workTimeChange` is null. A missing reliable leave applicant or target date also stops fail-closed. It returns the complete detail preview and a SHA-256 `fingerprint`; no business button is clicked. Present the applicant identity, type, target date, content, reason, freee automatic checks, and requested action. Retain and bind the fingerprint to that exact human-readable preview; the user does not need to copy, repeat, or personally compare the raw SHA-256 value.
 
-For an individual action, only after the current user message explicitly authorizes that exact No. and action, use the unchanged values:
+When the exact No. and action or an active scoped policy is authorized, use the unchanged values:
 
 ```bash
 npm run freee -- approvals commit-action \
@@ -269,11 +279,11 @@ npm run freee -- approvals commit-action \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-One user confirmation may instead authorize a condition-based policy run of general or dedicated monthly `approve` and `return` actions. Before the first write, the Agent restates the interpreted selection conditions, action mapping, scope and termination, dependency order, and per-item error handling, then asks for explicit confirmation. The scope may be one complete pending-queue pass, repeated scans until no match remains, a date/employee/type/payment-period/work-period range, a maximum count, or an explicitly configured recurring automation. A fixed candidate snapshot, full No. enumeration, and precomputed fingerprints are not required. The confirmation remains valid for the stated run and may cover later-discovered applications only when its scope explicitly does so.
+The same scoped authorization model applies to general and dedicated monthly `approve` and `return` actions. A precise request can directly define the conditions, action mapping, scope and termination, dependency order, and per-item error handling; do not ask the user to reconfirm a restatement when those boundaries are already clear. The scope may be one complete pending-queue pass, repeated scans until no match remains, a date/employee/type/payment-period/work-period range, a maximum count, or a configured recurring invocation. A fixed candidate snapshot, full No. enumeration, and precomputed fingerprints are not required. It may cover later-discovered applications only when its scope explicitly does so.
 
-During the authorized run, read every pending source page on each scan. For a general candidate, reread the full detail and use the general prepare/commit tools. For a monthly candidate, read the complete dedicated review and use the monthly prepare/commit tools. Apply the confirmed rule to exact structured identity, date, type, status, payment period, and work period fields when precision matters; semantic judgment over full reasons, comments, alerts, or automatic checks is allowed when the user delegated it. Skip and report one ambiguous or nonmatching item while continuing with independent matches. Prepare each match, retain and compare the fingerprint on the user's behalf, and invoke the corresponding single-item commit command. The user does not need to copy, repeat, or personally compare the SHA-256 value. This is the supported condition-based batch approval workflow, implemented through sequential single-item calls.
+During the authorized run, read every pending source page on each scan. For a general candidate, reread the full detail and use the general prepare/commit tools. For a monthly candidate, read the complete dedicated review and use the monthly prepare/commit tools. Apply the policy to exact structured identity, date, type, status, payment period, and work period fields when precision matters; semantic judgment over full reasons, comments, alerts, or automatic checks is allowed when the user delegated it. Skip and report one ambiguous or nonmatching item while continuing with independent matches. Prepare each match, retain and compare the fingerprint on the user's behalf, and invoke the corresponding single-item commit command. The user does not need to copy, repeat, or personally compare the SHA-256 value. This is scoped business automation implemented through sequential single-item calls.
 
-The CLI reopens the application and recomputes the fingerprint before locating one exact visible, enabled freee button. For a `休暇` approval, it repeats the complete pending-page dependency check, then reopens the exact target again and requires unchanged detail, action availability, and fingerprint. If a same-applicant, same-date `勤務時間修正` blocks the leave, process the correction first when the active policy authorizes it, then reread and prepare the leave; otherwise skip that leave. For a monthly approval, it rederives the payment/work mapping, reconstructs the complete review, and reopens the exact application before any click. A known pre-click error such as `APPROVAL_PREVIEW_CHANGED` or `MONTHLY_APPROVAL_PREVIEW_CHANGED` means no business action occurred and may be followed by a fresh read, policy evaluation, prepare, and commit under the same active authorization. An unavailable or already-processed item is skipped. A post-click state is read again across the synchronized paginated workflow and must match `承認済` for approve or `差戻し` for return. Never retry an unknown write; independently read that exact target and quarantine it plus any dependent leave chain, while independent matches may continue. Stop the whole run only when its authorization expires or becomes unclear, the backend or identity changes, pagination or page state is untrustworthy, or another systemic failure makes subsequent decisions unsafe. Report every approved, returned, skipped, blocked, failed, and unknown No. If a self-application leaves the manager history after return, the exact employee-side No., type, target date, content, reason, and application date may verify the final state. `return` maps to freee's `申請者へ差し戻す`; do not describe it as an irreversible rejection. The leave dependency rule does not apply to `return`, to approving a `勤務時間修正`, or to the dedicated monthly approval workflow. Policy-run authorization covers general and dedicated monthly manager approvals only; it does not cover punches, personal monthly writes, or personal-application writes.
+The CLI reopens the application and recomputes the fingerprint before locating one exact visible, enabled freee button. For a `休暇` approval, it repeats the complete pending-page dependency check, then reopens the exact target again and requires unchanged detail, action availability, and fingerprint. If a same-applicant, same-date `勤務時間修正` blocks the leave, process the correction first when the active policy authorizes it, then reread and prepare the leave; otherwise skip that leave. For a monthly approval, it rederives the payment/work mapping, reconstructs the complete review, and reopens the exact application before any click. A known pre-click error such as `APPROVAL_PREVIEW_CHANGED` or `MONTHLY_APPROVAL_PREVIEW_CHANGED` means no business action occurred and may be followed by a fresh read, policy evaluation, prepare, and commit under the same active authorization. An unavailable or already-processed item is skipped. A post-click state is read again across the synchronized paginated workflow and must match `承認済` for approve or `差戻し` for return. Never retry an unknown write; independently read that exact target and quarantine it plus any dependent leave chain, while independent matches may continue. Stop the whole run only when its authorization expires or becomes unclear, the backend or identity changes, pagination or page state is untrustworthy, or another systemic failure makes subsequent decisions unsafe. Report every approved, returned, skipped, blocked, failed, and unknown No. If a self-application leaves the manager history after return, the exact employee-side No., type, target date, content, reason, and application date may verify the final state. `return` maps to freee's `申請者へ差し戻す`; do not describe it as an irreversible rejection. The leave dependency rule does not apply to `return`, to approving a `勤務時間修正`, or to the dedicated monthly approval workflow.
 
 `auth client` reports only a short SHA-256 fingerprint of the configured Client ID plus the callback URL. Use it to match a configured credential to a freee developer app without printing the Client ID or Client Secret.
 
@@ -324,7 +334,7 @@ npm run freee -- clock break-end --confirm
 npm run freee -- clock out --confirm
 ```
 
-In the API branch, add `--company-id 123` only when the user has selected that company or there is exactly one clearly requested company. The Playwright branch does not accept it. Never add `--confirm` unless the current user message explicitly requests that exact action.
+In the API branch, add `--company-id 123` only when the user has selected that company or there is exactly one clearly requested company. The Playwright branch does not accept it. Add `--confirm` only when the exact punch or an active scoped business policy authorizes it.
 
 ## Result envelope
 
@@ -377,8 +387,8 @@ Important error codes:
 - `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`: a manager monthly application did not expose one explicit payment month consistent with `対象日`, or freee did not expose and verify one payment-month/work-month relationship. No review fingerprint or action is allowed; never substitute the payment month or a fixed offset.
 - `BROWSER_MONTHLY_PERIOD_UNSUPPORTED`: the final monthly snapshot still did not match the requested work month; stop without continuing against another period.
 - `MONTHLY_ACTION_UNAVAILABLE`: report the current monthly state and available actions; do not substitute another write.
-- `MONTHLY_PREVIEW_CHANGED`: no personal monthly action occurred. Prepare again, present the new preview, and obtain new explicit approval.
-- `MONTHLY_APPROVAL_PREVIEW_CHANGED`: no manager monthly approval action occurred. For an individual action, prepare again and obtain new explicit approval. In an active manager-approval policy run, reread the complete review, re-evaluate the confirmed rule, prepare again, and continue without another user confirmation when it still matches.
+- `MONTHLY_PREVIEW_CHANGED`: no personal monthly action occurred. Reread and prepare again; continue without another prompt when the new preview still matches the exact instruction or active policy.
+- `MONTHLY_APPROVAL_PREVIEW_CHANGED`: no manager monthly approval action occurred. Reread the complete review, re-evaluate the exact instruction or active policy, prepare again, and continue without another prompt when it still matches.
 - `MONTHLY_ACTION_RESULT_UNKNOWN`: do not retry. Read monthly status and inspect freee before considering another write.
 - `INVALID_PERSONAL_APPLICATION_PAGE`: use a positive page no greater than the returned employee-side `pageCount`.
 - `PERSONAL_APPLICATION_NOT_FOUND`: the numeric application No. was absent after every employee-side page was read; do not substitute a similar item.
@@ -387,14 +397,14 @@ Important error codes:
 - `INVALID_PERSONAL_APPLICATION_WORK_TIME_ACTION`: use only `replace` or `delete`; `delete` is valid only for a work-time correction and must omit every clock and break field.
 - `PERSONAL_APPLICATION_WORK_TIME_DELETE_UNAVAILABLE`: the exact `勤務時間を削除` option was hidden, disabled, or did not remain selected. No application was submitted; do not broaden the selector or substitute a raw-record delete.
 - `PERSONAL_APPLICATION_LEAVE_TYPE_UNAVAILABLE`: rerun options with the same date and use one exact returned label.
-- `PERSONAL_APPLICATION_PREVIEW_CHANGED`: no action occurred. Prepare again, present the new preview, and obtain new explicit approval.
+- `PERSONAL_APPLICATION_PREVIEW_CHANGED`: no action occurred. Reread and prepare again; continue without another prompt when the new preview still matches the exact instruction or active policy.
 - `PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN`: do not retry. Read the personal application list/detail and inspect freee before considering another write, including both the original and any new cancellation application.
 - `INVALID_APPROVAL_PAGE`: use a positive page no greater than the returned `pageCount`.
 - `APPROVAL_NOT_FOUND`: the numeric application No. was absent after every manager-workflow page was read; do not substitute a similar item.
 - `APPROVAL_ACTION_UNAVAILABLE`: the application is already processed or the current account cannot perform that action. Stop an individual action; in an active policy run, skip it and continue with independent matches.
 - `LEAVE_APPROVAL_BLOCKED_BY_WORK_TIME_CORRECTION`: no leave fingerprint or approval click was produced. Process every listed pending same-applicant, same-date `勤務時間修正` first. In an active policy run, do so automatically when the rule authorizes those corrections, then reread and prepare the leave; otherwise skip the leave and continue with independent items.
 - `LEAVE_APPROVAL_DEPENDENCY_UNCONFIRMED`: the `休暇` applicant or target date was unavailable, so the dependency could not be matched reliably. Do not infer identity or date from surrounding text or list order. Stop an individual approval; in an active policy run, skip this leave and continue with independent items.
-- `APPROVAL_PREVIEW_CHANGED`: no action occurred. For an individual approval, run `prepare-action` again, present the new preview, and obtain new explicit approval. In an active policy run, reread the detail, re-evaluate the confirmed rule, prepare again, and continue without another user confirmation when it still matches.
+- `APPROVAL_PREVIEW_CHANGED`: no action occurred. Reread the detail, re-evaluate the exact instruction or active policy, prepare again, and continue without another prompt when it still matches.
 - `APPROVAL_ACTION_RESULT_UNKNOWN`: do not retry that target. Read its detail and quarantine it plus any dependent leave chain; an active policy run may continue with independent matches.
 - `TOKEN_REFRESH_UNAVAILABLE`: OAuth setup has not completed; do not request tokens in chat.
 - `TOKEN_PERSIST_FAILED`: stop. Because freee rotates Refresh Tokens, a fresh authorization may be required.
@@ -403,8 +413,8 @@ Important error codes:
 - `GROUP_REQUIRED`: show the returned department choices and ask the user to select one; do not infer a department.
 - `GROUP_NOT_FOUND`: the requested department has no employee membership on that date; verify the date and group ID.
 - `CLOCK_ACTION_UNAVAILABLE`: report `availableTypes` and do not write anything.
-- `CLOCK_PREVIEW_CHANGED`: no action occurred. Prepare again, show the new preview and fingerprint, and obtain new explicit approval.
-- `CONFIRMATION_REQUIRED`: no write occurred. Only re-run with `--confirm` if the current user message explicitly requested that exact real punch.
+- `CLOCK_PREVIEW_CHANGED`: no action occurred. Reread and prepare again; continue without another prompt when the new preview still matches the exact instruction or active policy.
+- `CONFIRMATION_REQUIRED`: no write occurred. Re-run with `--confirm` only when the prepared write matches a precise user instruction or active scoped business policy.
 
 ## Current scope
 
@@ -412,4 +422,4 @@ Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusi
 
 Implemented but unavailable to the current API role: API-backed direct department member daily punch status. Do not fall back.
 
-Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, overtime creation, multiple work segments/breaks, returned/draft personal application deletion, persistent batch-policy state, and audit logs. Condition-based general and dedicated monthly approval batches are implemented through verified sequential single-item operations. Keep remaining work on `TODO.md`; do not directly run the legacy Playwright project.
+Not implemented yet: Playwright `me`, date-specific department clock details, child-department selection, overtime creation, multiple work segments/breaks, returned/draft personal application deletion, persistent scoped-policy state, and audit logs. Scoped automation for all supported business writes is implemented through verified sequential single-item operations. Keep remaining work on `TODO.md`; do not directly run the legacy Playwright project.

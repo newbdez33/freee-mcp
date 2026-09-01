@@ -6,7 +6,7 @@ Baseline date: 2026-08-14.
 
 The ordered, reversible workflow for the Playwright application and attendance-management cases that the maintainer will execute with a personal account is documented in [`personal-account-live-test-plan.md`](personal-account-live-test-plan.md). Public API validation and real clock commits remain tracked here but are explicitly outside that plan.
 
-The checklist intentionally excludes features that are not implemented, including overtime creation, multiple work segments or breaks, general employee daily detail outside the monthly-approval review, recursive child-department aggregation, deletes, persistent batch-policy state, and audit logs. Condition-based manager approval batches are supported through sequential single-item operations, but this checklist validates each real write path separately.
+The checklist intentionally excludes features that are not implemented, including overtime creation, multiple work segments or breaks, general employee daily detail outside the monthly-approval review, recursive child-department aggregation, returned/draft personal-application deletion, persistent scoped-policy state, and audit logs. Scoped business automation is supported through sequential single-item operations, but this production validation checklist deliberately validates each real write path separately.
 
 ## Recorded live validation baseline
 
@@ -27,7 +27,7 @@ Partial validation runs are recorded separately:
 
 ## Priority 0: real business-write paths
 
-Every item below requires a dedicated test case, a reviewed prepare result, and explicit confirmation immediately before commit. Run these validation cases individually rather than using the supported batch-policy workflow.
+Every item below uses a dedicated test authorization and a reviewed prepare result. Run these production validation cases individually rather than using the supported scoped-policy workflow; this deliberately stricter validation protocol does not limit the normal authorization model in [ADR-0004](decisions/0004-scoped-business-automation.md).
 
 - [ ] **LV-W01 — Public API clock commit.** Prepare and commit one legitimate punch during a normal workday, then verify that the returned action disappears and the real freee clock state changes once.
 - [ ] **LV-W02 — Playwright clock commit.** On a different legitimate punch transition, prepare and commit through the Playwright backend and verify the changed state without retrying.

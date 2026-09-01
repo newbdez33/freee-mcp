@@ -45,7 +45,7 @@ test("shared service binds a clock commit to the prepared state and action", asy
   assert.equal(writes, 1);
 });
 
-test("shared service clock commit requires confirmation before reading live state", async () => {
+test("shared service clock commit requires the confirm assertion before reading live state", async () => {
   const service = new FreeeService("playwright");
   let reads = 0;
   service.getClockStatus = async () => {
@@ -55,12 +55,16 @@ test("shared service clock commit requires confirmation before reading live stat
 
   await assert.rejects(
     service.commitClockAction("in", "0".repeat(64), false),
-    (error) => error.code === "CONFIRMATION_REQUIRED",
+    (error) => {
+      assert.equal(error.code, "CONFIRMATION_REQUIRED");
+      assert.match(error.message, /precise user instruction or active scoped business policy/);
+      return true;
+    },
   );
   assert.equal(reads, 0);
 });
 
-test("shared service monthly commit requires confirmation before launching a browser", async () => {
+test("shared service monthly commit requires the confirm assertion before launching a browser", async () => {
   const service = new FreeeService("playwright");
   let launches = 0;
   service.withBrowser = async () => {
@@ -75,7 +79,7 @@ test("shared service monthly commit requires confirmation before launching a bro
   assert.equal(launches, 0);
 });
 
-test("shared service monthly approval commit requires confirmation before launching a browser", async () => {
+test("shared service monthly approval commit requires the confirm assertion before launching a browser", async () => {
   const service = new FreeeService("playwright");
   let launches = 0;
   service.withBrowser = async () => {
@@ -90,7 +94,7 @@ test("shared service monthly approval commit requires confirmation before launch
   assert.equal(launches, 0);
 });
 
-test("shared service personal application commits require confirmation before launching a browser", async () => {
+test("shared service personal application commits require the confirm assertion before launching a browser", async () => {
   const service = new FreeeService("playwright");
   let launches = 0;
   service.withBrowser = async () => {

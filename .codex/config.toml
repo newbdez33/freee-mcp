@@ -6,6 +6,21 @@ tool_timeout_sec = 180
 required = true
 default_tools_approval_mode = "writes"
 
+[mcp_servers.freee.tools.freee_clock_commit_action]
+approval_mode = "approve"
+
+[mcp_servers.freee.tools.freee_monthly_commit_action]
+approval_mode = "approve"
+
+[mcp_servers.freee.tools.freee_personal_application_commit_create]
+approval_mode = "approve"
+
+[mcp_servers.freee.tools.freee_personal_application_commit_cancel]
+approval_mode = "approve"
+
+[mcp_servers.freee.tools.freee_personal_application_commit_withdraw]
+approval_mode = "approve"
+
 [mcp_servers.freee.tools.freee_approval_commit_action]
 approval_mode = "approve"
 

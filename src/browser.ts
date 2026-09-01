@@ -292,7 +292,7 @@ export class FreeeBrowserClient {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This command would click a real freee time clock button. Re-run only after explicit user approval with `--confirm`.",
+        "This command would click a real freee time clock button. Re-run with `--confirm` only when the exact punch matches a precise user instruction or active scoped business policy.",
         {
           details: {
             requestedAction: action,
@@ -529,7 +529,7 @@ export class FreeeBrowserClient {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This command changes a real monthly attendance application. Prepare it first, obtain explicit current-message approval, then re-run with its fingerprint and `--confirm`.",
+        "This command changes a real monthly attendance application. Prepare it first, verify the preview matches a precise user instruction or active scoped business policy, then re-run with its fingerprint and `--confirm`.",
         { details: { action, period: period ?? null }, exitCode: 2 },
       );
     }
@@ -721,7 +721,7 @@ export class FreeeBrowserClient {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This command creates a real personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with its fingerprint and `--confirm`.",
+        "This command creates a real personal attendance application. Prepare it first, verify the preview matches a precise user instruction or active scoped business policy, then commit with its fingerprint and `--confirm`.",
         { details: { kind: input.kind, date: input.date }, exitCode: 2 },
       );
     }
@@ -915,7 +915,7 @@ export class FreeeBrowserClient {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This command creates a real cancellation application for an approved personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with its fingerprint and `--confirm`.",
+        "This command creates a real cancellation application for an approved personal attendance application. Prepare it first, verify the preview matches a precise user instruction or active scoped business policy, then commit with its fingerprint and `--confirm`.",
         { details: { id }, exitCode: 2 },
       );
     }
@@ -1020,7 +1020,7 @@ export class FreeeBrowserClient {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This command withdraws a real personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with its fingerprint and `--confirm`.",
+        "This command withdraws a real personal attendance application. Prepare it first, verify the preview matches a precise user instruction or active scoped business policy, then commit with its fingerprint and `--confirm`.",
         { details: { id }, exitCode: 2 },
       );
     }
@@ -1290,7 +1290,7 @@ export class FreeeBrowserClient {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This command changes a real monthly attendance application. Review it first, obtain explicit current-message approval, then re-run with its fingerprint and `--confirm`.",
+        "This command changes a real monthly attendance application. Review it first, verify the preview matches a precise user instruction or active scoped business policy, then re-run with its fingerprint and `--confirm`.",
         { details: { id, action }, exitCode: 2 },
       );
     }
@@ -1380,7 +1380,7 @@ export class FreeeBrowserClient {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This command changes a real employee application. Prepare it first, obtain explicit current-message approval, then re-run with its fingerprint and `--confirm`.",
+        "This command changes a real employee application. Prepare it first, verify the preview matches a precise user instruction or active scoped business policy, then re-run with its fingerprint and `--confirm`.",
         { details: { id, action }, exitCode: 2 },
       );
     }

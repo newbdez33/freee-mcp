@@ -149,17 +149,19 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
     const instructions = client.getInstructions();
     assert.match(instructions, /Always prepare first/);
     assert.match(instructions, /setupCommand/);
-    assert.match(instructions, /user-authorized condition-based batch automation/);
-    assert.match(instructions, /matches every fingerprint on the user's behalf/);
-    assert.match(instructions, /approve\/return mapping/);
+    assert.match(instructions, /freee MCP is an automation component/);
+    assert.match(instructions, /precise user instruction or active scoped business policy/);
+    assert.match(instructions, /do not require another confirmation after prepare/);
+    assert.match(instructions, /existing sequential single-item tools/);
+    assert.match(instructions, /No per-item user confirmation or fingerprint review is required/);
     assert.match(instructions, /need not pre-enumerate application Nos/);
-    assert.match(instructions, /continue independent matches/);
+    assert.match(instructions, /configured recurring invocation/);
+    assert.match(instructions, /independent work may continue/);
     assert.match(
       instructions.slice(0, 512),
-      /support user-authorized condition-based batch automation/,
+      /automation component/,
     );
-    assert.match(instructions, /dedicated monthly list, review, prepare, and commit tools/);
-    assert.doesNotMatch(instructions, /No batch endpoint/);
+    assert.match(instructions, /Credential, OAuth, Keychain, browser-configuration/);
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_team_status").annotations.readOnlyHint,
       true,
@@ -195,11 +197,7 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
     );
     assert.match(
       listed.tools.find((tool) => tool.name === "freee_monthly_approval_prepare_action").description,
-      /confirmed condition-based batch run/,
-    );
-    assert.match(
-      listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action").description,
-      /still-active confirmed condition-based batch policy/,
+      /active scoped business policy/,
     );
     assert.match(
       listed.tools.find((tool) => tool.name === "freee_approval_prepare_action").description,
@@ -207,7 +205,7 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
     );
     assert.match(
       listed.tools.find((tool) => tool.name === "freee_approval_prepare_action").description,
-      /confirmed condition-based batch run/,
+      /active scoped business policy/,
     );
     assert.match(
       listed.tools.find((tool) => tool.name === "freee_approval_commit_action").description,
@@ -222,19 +220,30 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
       /cover later-discovered matches/,
     );
     assert.match(
-      listed.tools.find((tool) => tool.name === "freee_approval_commit_action")
-        .inputSchema.properties.confirm.description,
-      /conditions, approve\/return mapping, scope, termination, and error handling/,
-    );
-    assert.match(
       listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action").description,
       /without per-item confirmation/,
     );
-    assert.match(
-      listed.tools.find((tool) => tool.name === "freee_monthly_approval_commit_action")
-        .inputSchema.properties.confirm.description,
-      /conditions, approve\/return mapping, scope, termination, and error handling/,
-    );
+    const businessCommitToolNames = [
+      "freee_clock_commit_action",
+      "freee_monthly_commit_action",
+      "freee_personal_application_commit_create",
+      "freee_personal_application_commit_cancel",
+      "freee_personal_application_commit_withdraw",
+      "freee_monthly_approval_commit_action",
+      "freee_approval_commit_action",
+    ];
+    for (const toolName of businessCommitToolNames) {
+      const tool = listed.tools.find((candidate) => candidate.name === toolName);
+      assert.match(tool.description, /active scoped business policy/);
+      assert.match(
+        tool.inputSchema.properties.confirm.description,
+        /precise user instruction or a still-active scoped business policy/,
+      );
+      assert.match(
+        tool.inputSchema.properties.confirm.description,
+        /no separate per-item confirmation is required/,
+      );
+    }
     assert.equal(
       listed.tools.find((tool) => tool.name === "freee_personal_application_commit_create").annotations.destructiveHint,
       false,
@@ -258,7 +267,7 @@ test("MCP server advertises structured freee tools, safety instructions, and ann
     assert.match(
       listed.tools.find((tool) => tool.name === "freee_personal_application_commit_create")
         .description,
-      /approval workflow/,
+      /authorized date set sequentially without per-item confirmation/,
     );
     assert.match(instructions, /work_time_action=delete/);
     assert.match(instructions, /rather than directly deleting a raw record/);
@@ -476,10 +485,21 @@ test("MCP returns structured leave approval dependency errors", async () => {
   }
 });
 
-test("MCP commit schema rejects missing explicit confirmation before service invocation", async () => {
+test("MCP commit schema requires the confirm assertion before service invocation", async () => {
   const service = createFakeService();
   const { client, server } = await connect(service);
   try {
+    const clock = await client.callTool({
+      name: "freee_clock_commit_action",
+      arguments: {
+        action: "in",
+        fingerprint: "a".repeat(64),
+        confirm: false,
+      },
+    });
+    assert.equal(clock.isError, true);
+    assert.deepEqual(service.calls, []);
+
     const result = await client.callTool({
       name: "freee_approval_commit_action",
       arguments: {

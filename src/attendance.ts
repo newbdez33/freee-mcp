@@ -106,7 +106,7 @@ export async function performClockAction(
   if (!options.confirm) {
     throw new CliError(
       "CONFIRMATION_REQUIRED",
-      "This command would create a real freee time clock entry. Re-run only after explicit user approval with `--confirm`.",
+      "This command would create a real freee time clock entry. Re-run with `--confirm` only when the exact punch matches a precise user instruction or active scoped business policy.",
       {
         details: {
           requestedAction: action,

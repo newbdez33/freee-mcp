@@ -497,7 +497,7 @@ test("browser diagnostic screenshots are opt-in and must remain outside the repo
   );
 });
 
-test("Playwright clock action never clicks without explicit confirmation", async () => {
+test("Playwright clock action never clicks without the confirm assertion", async () => {
   const { client, state } = createFakeBrowser(["in"]);
 
   await assert.rejects(
@@ -1397,7 +1397,7 @@ test("Playwright personal application list uses the employee returned-state filt
   assert.equal(result.applications[0].status, "差戻し");
 });
 
-test("Playwright approval commit stops before page access without explicit confirmation", async () => {
+test("Playwright approval commit stops before page access without the confirm assertion", async () => {
   const { client, state } = createFakeBrowser([]);
 
   await assert.rejects(
@@ -1551,7 +1551,7 @@ test("Playwright approval return verifies the current user's item through employ
   assert.deepEqual(state.clicks, ["return"]);
 });
 
-test("Playwright monthly commit never clicks without explicit confirmation", async () => {
+test("Playwright monthly commit never clicks without the confirm assertion", async () => {
   const { client, state } = createFakeBrowser([]);
   let prepares = 0;
   client.prepareMonthlyAction = async () => {
@@ -1567,7 +1567,7 @@ test("Playwright monthly commit never clicks without explicit confirmation", asy
   assert.deepEqual(state.clicks, []);
 });
 
-test("Playwright personal application commits never click without explicit confirmation", async () => {
+test("Playwright personal application commits never click without the confirm assertion", async () => {
   const { client, state } = createFakeBrowser([]);
   await assert.rejects(
     client.commitPersonalApplicationCreate({

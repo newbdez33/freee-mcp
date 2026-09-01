@@ -264,7 +264,7 @@ export class FreeeService implements FreeeOperations {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This tool creates a real freee time clock entry. Prepare it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        "This tool creates a real freee time clock entry. Prepare it first, verify that the exact action matches a precise user instruction or active scoped business policy, then commit with the fingerprint and confirm=true.",
         { details: { action }, exitCode: 2 },
       );
     }
@@ -327,7 +327,7 @@ export class FreeeService implements FreeeOperations {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This tool changes a real monthly attendance application. Prepare it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        "This tool changes a real monthly attendance application. Prepare it first, verify that the exact action matches a precise user instruction or active scoped business policy, then commit with the fingerprint and confirm=true.",
         { details: { action, period: period ?? null }, exitCode: 2 },
       );
     }
@@ -387,7 +387,7 @@ export class FreeeService implements FreeeOperations {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This tool creates a real personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        "This tool creates a real personal attendance application. Prepare it first, verify that the exact action matches a precise user instruction or active scoped business policy, then commit with the fingerprint and confirm=true.",
         { details: { kind: input.kind, date: input.date }, exitCode: 2 },
       );
     }
@@ -432,7 +432,7 @@ export class FreeeService implements FreeeOperations {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This tool creates a real cancellation application for an approved personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        "This tool creates a real cancellation application for an approved personal attendance application. Prepare it first, verify that the exact action matches a precise user instruction or active scoped business policy, then commit with the fingerprint and confirm=true.",
         { details: { id }, exitCode: 2 },
       );
     }
@@ -453,7 +453,7 @@ export class FreeeService implements FreeeOperations {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This tool withdraws a real personal attendance application. Prepare it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        "This tool withdraws a real personal attendance application. Prepare it first, verify that the exact action matches a precise user instruction or active scoped business policy, then commit with the fingerprint and confirm=true.",
         { details: { id }, exitCode: 2 },
       );
     }
@@ -552,7 +552,7 @@ export class FreeeService implements FreeeOperations {
     if (!confirm) {
       throw new CliError(
         "CONFIRMATION_REQUIRED",
-        "This tool changes a real monthly attendance application. Review it first, obtain explicit current-message approval, then commit with the exact fingerprint and confirmation.",
+        "This tool changes a real monthly attendance application. Review it first, verify that the exact action matches a precise user instruction or active scoped business policy, then commit with the fingerprint and confirm=true.",
         { details: { id, action }, exitCode: 2 },
       );
     }

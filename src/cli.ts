@@ -659,7 +659,7 @@ function parseTeamOptions(args: string[]): { companyId?: number; groupId?: numbe
 
 function parseLeaveBalanceOptions(
   args: string[],
-): { employee?: string; employeeId?: number; period?: string } {
+): { employee?: string; employeeId?: number } {
   let parsed: ReturnType<typeof parseArgs>;
   try {
     parsed = parseArgs({
@@ -667,7 +667,6 @@ function parseLeaveBalanceOptions(
       options: {
         employee: { type: "string" },
         "employee-id": { type: "string" },
-        period: { type: "string" },
       },
       strict: true,
       allowPositionals: false,
@@ -695,17 +694,10 @@ function parseLeaveBalanceOptions(
       { exitCode: 2 },
     );
   }
-  const period = parsed.values.period;
-  if (typeof period === "string" && !/^\d{4}-\d{2}$/.test(period)) {
-    throw new CliError("INVALID_LEAVE_BALANCE_PERIOD", "`--period` must use YYYY-MM.", {
-      exitCode: 2,
-    });
-  }
 
   return {
     ...(typeof employee === "string" ? { employee } : {}),
     ...(employeeId === undefined ? {} : { employeeId }),
-    ...(typeof period === "string" ? { period } : {}),
   };
 }
 
@@ -1081,7 +1073,7 @@ function printHelp(): void {
   process.stdout.write("  freee-agent me\n");
   process.stdout.write("  freee-agent clock status [--company-id ID] [--date YYYY-MM-DD]\n");
   process.stdout.write("  freee-agent team status [--company-id ID] [--group-id ID] [--date YYYY-MM-DD]\n");
-  process.stdout.write("  freee-agent leave balances [--employee NAME | --employee-id ID] [--period YYYY-MM]\n");
+  process.stdout.write("  freee-agent leave balances [--employee NAME | --employee-id ID]\n");
   process.stdout.write("  freee-agent monthly status [--period YYYY-MM]\n");
   process.stdout.write("  freee-agent monthly prepare-action --action submit|withdraw [--period YYYY-MM]\n");
   process.stdout.write("  freee-agent monthly commit-action --action submit|withdraw --fingerprint SHA256 [--period YYYY-MM] --confirm\n");

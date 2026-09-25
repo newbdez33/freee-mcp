@@ -333,7 +333,7 @@ test("MCP tools return safe structured envelopes and default the approval filter
     assert.equal(options.structuredContent.data.leaveTypesDate, "2026-08-14");
     const leaveBalances = await client.callTool({
       name: "freee_leave_balances",
-      arguments: { employee_id: 1716005, period: "2026-09" },
+      arguments: { employee_id: 1716005 },
     });
     assert.equal(leaveBalances.structuredContent.data.employeeId, 1715674);
     assert.equal(leaveBalances.structuredContent.data.period, "2026-10");
@@ -371,7 +371,7 @@ test("MCP tools return safe structured envelopes and default the approval filter
       ["monthly-approval-review", "101"],
       ["requests-list", "pending", 1],
       ["requests-options", "2026-08-14"],
-      ["leave-balances", { employeeId: 1716005, period: "2026-09" }],
+      ["leave-balances", { employeeId: 1716005 }],
       ["requests-prepare-create", {
         kind: "leave",
         date: "2026-08-14",

@@ -119,11 +119,10 @@ test("shared service leave balances delegate to the browser client", async () =>
     }),
   });
 
-  const result = await service.getLeaveBalances({ employeeId: 1716005, period: "2026-09" });
+  const result = await service.getLeaveBalances({ employeeId: 1716005 });
 
   assert.equal(result.backend, "playwright");
   assert.equal(result.employeeId, 1716005);
-  assert.equal(result.period, "2026-09");
   assert.equal(result.paidHoliday.remainingDays, 11);
 });
 

@@ -215,7 +215,7 @@ npm run freee -- auth status
 npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
-npm run freee -- leave balances [--employee NAME | --employee-id ID] [--period YYYY-MM]
+npm run freee -- leave balances [--employee NAME | --employee-id ID]
 npm run freee -- monthly status --period YYYY-MM
 npm run freee -- requests options --date YYYY-MM-DD
 npm run freee -- requests list --status pending|returned|approved|all --page 1
@@ -285,7 +285,7 @@ MCP と CLI の書き込みは、同じ automation-first 安全モデルに従�
 
 API 版 `team status` は実装・自動テスト済みですが、GCU で使われる `attendance_manager` role は Public API から従業員所属を参照できません。API バックエンドは権限エラーを返し、Playwright へフォールバックしません。
 
-`leave balances` は、1 名の勤怠編集ページに freee がすでに表示している残数を読み取る読み取り専用の Playwright コマンドです。メンバー指定がなければ本人を読み取ります。`--employee-id ID` はその freee 従業員 ID を直接開きます。`--employee NAME` は勤怠モニターの検索で名前を解決し、完全一致 1 件または一意な部分一致 1 件のみを受け付けます。0 件または複数件の場合は `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` または `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` で停止し、候補名を返します。`--employee` と `--employee-id` は同時に指定できません。`--period YYYY-MM` は表示する支払月を選び、省略時は本人に対して freee が表示している月を使います。結果には有給の集計と付与ごとの行（`付与日数`/`消化数`/`残数`）、`夏季休暇` などの特別休暇の各行、代休の各行、および要約ラベルの生値が含まれます。このコマンドは書き込み操作を一切クリックせず、freee が表示しない値は推測せず `null` または元のラベルのまま返します。
+`leave balances` は、1 名の勤怠編集ページに freee がすでに表示している残数を読み取る読み取り専用の Playwright コマンドです。メンバー指定がなければ本人を読み取ります。`--employee-id ID` はその freee 従業員 ID を直接開きます。`--employee NAME` は勤怠モニターの検索で名前を解決し、完全一致 1 件または一意な部分一致 1 件のみを受け付けます。0 件または複数件の場合は `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` または `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` で停止し、候補名を返します。`--employee` と `--employee-id` は同時に指定できません。結果には有給の集計と付与ごとの行（`付与日数`/`消化数`/`残数`）、`夏季休暇` などの特別休暇の各行、代休の各行、および要約ラベルの生値が含まれます。このコマンドは書き込み操作を一切クリックせず、freee が表示しない値は推測せず `null` または元のラベルのまま返します。
 
 Playwright バックエンドは System Keychain 認証情報、永続ログイン、本人打刻状態と操作、本人月次の提出/取下げ、本人申請の一覧/詳細/休暇/勤務時間修正/取下げ/承認済み申請の取消、部門月次集計、一般従業員申請処理、専用月次レビュー/承認/差戻しに対応します。freee ホームから Employee Portal に入り、本人打刻コントロール、表示可能メンバー、締め申請、勤怠不備、月次労働時間、対象申請者の正確な日次勤怠表を読み取り、申請ワークフローで許可された操作を処理します。ブラウザー profile はリポジトリ外に保存されます。
 

@@ -119,7 +119,7 @@ npm run freee -- browser status
 npm run freee -- clock status
 npm run freee -- team status
 npm run freee -- team status --date YYYY-MM-DD
-npm run freee -- leave balances [--employee NAME | --employee-id ID] [--period YYYY-MM]
+npm run freee -- leave balances [--employee NAME | --employee-id ID]
 npm run freee -- approvals list
 npm run freee -- approvals list --status pending|returned|approved|all --page PAGE
 npm run freee -- approvals detail --id APPLICATION_NO
@@ -135,7 +135,7 @@ npm run freee -- requests detail --id APPLICATION_NO
 
 `monthly status --period` selects and reads that personal work month in freee's attendance calendar. Playwright derives the matching payment month from freee's currently displayed payment-month/work-month pair, uses the bounded official year/month navigator, and verifies both resulting months before parsing. Omitting `--period` reads the currently selected month. It returns `unsubmitted`, `pending`, `approved`, or `returned`, preserves the corresponding freee label, identifies the exact matching monthly application when present, lists only currently available actions, and returns visible calendar warnings. Evaluate every warning against the exact instruction or active policy; an uncovered warning stops that item.
 
-`leave balances` reads the balances freee already displays on one employee's attendance-edit page. With no member option it reads the current employee. `--employee-id ID` opens that exact freee employee. `--employee NAME` resolves the name through the attendance monitor search: one exact match, or one unique partial match, is accepted; zero or multiple matches stop with `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` or `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` and list the candidate names. `--employee` and `--employee-id` are mutually exclusive. `--period YYYY-MM` selects the displayed payment month; omit it to use the month freee shows for the current employee. The result reports the paid-holiday aggregate and per-grant rows (`付与日数`/`消化数`/`残数`), each special-holiday row (for example `夏季休暇`), each compensatory-holiday row, and the raw summary labels. This command is strictly read-only; it never clicks a write control, and a value freee does not expose stays `null` or its raw label instead of being inferred.
+`leave balances` reads the balances freee already displays on one employee's attendance-edit page. With no member option it reads the current employee. `--employee-id ID` opens that exact freee employee. `--employee NAME` resolves the name through the attendance monitor search: one exact match, or one unique partial match, is accepted; zero or multiple matches stop with `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` or `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` and list the candidate names. `--employee` and `--employee-id` are mutually exclusive. The result reports the paid-holiday aggregate and per-grant rows (`付与日数`/`消化数`/`残数`), each special-holiday row (for example `夏季休暇`), each compensatory-holiday row, and the raw summary labels. This command is strictly read-only; it never clicks a write control, and a value freee does not expose stays `null` or its raw label instead of being inferred.
 
 ## Monthly attendance actions
 

@@ -2267,7 +2267,7 @@ test("Playwright leave balances read the current employee page by default", asyn
   assert.equal(result.paidHoliday.remainingDays, 23);
 });
 
-test("Playwright leave balances accept an explicit employee id and period", async () => {
+test("Playwright leave balances accept an explicit employee id", async () => {
   const { client } = createFakeBrowser([]);
   client.ensureAuthenticated = async () => {};
   client.readHomeSelfContext = async () => ({ employeeId: 1715674, period: "2026-10" });
@@ -2275,11 +2275,11 @@ test("Playwright leave balances accept an explicit employee id and period", asyn
   client.openLeaveBalancePage = async (employeeId, period) => { opened.push([employeeId, period]); };
   client.readLeaveBalanceSnapshot = async () => leaveBalanceSnapshot();
 
-  const result = await client.getLeaveBalances({ employeeId: 1716005, period: "2026-09" });
+  const result = await client.getLeaveBalances({ employeeId: 1716005 });
 
-  assert.deepEqual(opened, [[1716005, "2026-09"]]);
+  assert.deepEqual(opened, [[1716005, "2026-10"]]);
   assert.equal(result.employeeId, 1716005);
-  assert.equal(result.period, "2026-09");
+  assert.equal(result.period, "2026-10");
 });
 
 test("Playwright leave balances resolve a member name through the monitor and fail closed", async () => {

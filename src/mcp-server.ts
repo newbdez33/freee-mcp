@@ -154,14 +154,12 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
         .describe("Employee display name, resolved through the attendance-monitor search. Mutually exclusive with employee_id."),
       employee_id: z.number().int().positive().optional()
         .describe("freee employee ID. Mutually exclusive with employee."),
-      period: periodSchema.describe("Optional payment month in YYYY-MM. Defaults to the month freee shows for the current employee."),
     },
     annotations: readOnlyAnnotations,
-  }, async ({ employee, employee_id, period }) => executeTool(
+  }, async ({ employee, employee_id }) => executeTool(
     () => service.getLeaveBalances({
       ...(employee === undefined ? {} : { employee }),
       ...(employee_id === undefined ? {} : { employeeId: employee_id }),
-      ...(period === undefined ? {} : { period }),
     }),
   ));
 

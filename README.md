@@ -216,7 +216,7 @@ npm run freee -- auth status
 npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
-npm run freee -- leave balances [--employee NAME | --employee-id ID] [--period YYYY-MM]
+npm run freee -- leave balances [--employee NAME | --employee-id ID]
 npm run freee -- monthly status --period YYYY-MM
 npm run freee -- requests options --date YYYY-MM-DD
 npm run freee -- requests list --status pending|returned|approved|all --page 1
@@ -286,7 +286,7 @@ MCP and CLI writes follow the same automation-first safety model. Every real act
 
 The API implementation of `team status` is complete and tested, but the `attendance_manager` role used at GCU cannot read employee memberships through the Public API. The API backend returns the permission error and does not fall back to Playwright.
 
-`leave balances` is a read-only Playwright command that reads the balances freee already displays on one employee's attendance-edit page. With no member option it reads the current employee; `--employee-id ID` opens that exact freee employee; `--employee NAME` resolves the name through the attendance monitor search and accepts one exact match or one unique partial match, while zero or multiple matches stop with `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` or `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` and list the candidate names. `--employee` and `--employee-id` are mutually exclusive, and `--period YYYY-MM` selects the displayed payment month (defaulting to the month freee shows for the current employee). The result reports the paid-holiday aggregate and per-grant rows (`付与日数`/`消化数`/`残数`), each special-holiday row such as `夏季休暇`, each compensatory-holiday row, and the raw summary labels. The command never clicks a write control, and a value freee does not expose stays `null` or its raw label rather than being inferred.
+`leave balances` is a read-only Playwright command that reads the balances freee already displays on one employee's attendance-edit page. With no member option it reads the current employee; `--employee-id ID` opens that exact freee employee; `--employee NAME` resolves the name through the attendance monitor search and accepts one exact match or one unique partial match, while zero or multiple matches stop with `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` or `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` and list the candidate names. `--employee` and `--employee-id` are mutually exclusive. The result reports the paid-holiday aggregate and per-grant rows (`付与日数`/`消化数`/`残数`), each special-holiday row such as `夏季休暇`, each compensatory-holiday row, and the raw summary labels. The command never clicks a write control, and a value freee does not expose stays `null` or its raw label rather than being inferred.
 
 The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, personal application list/detail/leave/work-time-correction/withdraw/approved-application cancellation, department monthly attendance summaries, general employee application handling, and dedicated monthly attendance review/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, monthly work totals, and one exact applicant's daily attendance table, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
 

@@ -142,7 +142,6 @@ export interface BrowserTeamStatusOptions {
 export interface BrowserLeaveBalanceOptions {
   employee?: string;
   employeeId?: number;
-  period?: string;
 }
 
 export interface BrowserLeaveBalancesResult extends BrowserLeaveBalances {
@@ -416,11 +415,10 @@ export class FreeeBrowserClient {
   ): Promise<BrowserLeaveBalancesResult> {
     await this.ensureAuthenticated();
     const home = await this.readHomeSelfContext();
-    const period = options.period ?? home.period;
     const employeeId = await this.resolveLeaveBalanceEmployeeId(options, home.employeeId);
-    await this.openLeaveBalancePage(employeeId, period);
+    await this.openLeaveBalancePage(employeeId, home.period);
     const snapshot = await this.readLeaveBalanceSnapshot();
-    return { period, employeeId, ...parseLeaveBalanceSnapshot(snapshot) };
+    return { period: home.period, employeeId, ...parseLeaveBalanceSnapshot(snapshot) };
   }
 
   private async readHomeSelfContext(): Promise<{ employeeId: number; period: string }> {

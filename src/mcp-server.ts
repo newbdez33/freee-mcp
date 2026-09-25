@@ -146,6 +146,25 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
     }),
   ));
 
+  server.registerTool("freee_leave_balances", {
+    title: "freee leave balances",
+    description: "Read the paid-holiday, special-holiday, and compensatory-holiday balances shown on one employee's freee attendance-edit page. Defaults to the current employee; use employee or employee_id for another visible member. Read-only; values freee does not expose are reported explicitly rather than guessed.",
+    inputSchema: {
+      employee: z.string().min(1).max(100).optional()
+        .describe("Employee display name, resolved through the attendance-monitor search. Mutually exclusive with employee_id."),
+      employee_id: z.number().int().positive().optional()
+        .describe("freee employee ID. Mutually exclusive with employee."),
+      period: periodSchema.describe("Optional payment month in YYYY-MM. Defaults to the month freee shows for the current employee."),
+    },
+    annotations: readOnlyAnnotations,
+  }, async ({ employee, employee_id, period }) => executeTool(
+    () => service.getLeaveBalances({
+      ...(employee === undefined ? {} : { employee }),
+      ...(employee_id === undefined ? {} : { employeeId: employee_id }),
+      ...(period === undefined ? {} : { period }),
+    }),
+  ));
+
   server.registerTool("freee_monthly_status", {
     title: "freee monthly attendance status",
     description: "Read the requested or currently selected personal 月次勤怠締め month and its available actions without changing freee.",

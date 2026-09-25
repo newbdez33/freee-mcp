@@ -15,7 +15,7 @@ import type {
   BrowserPersonalApplicationCreateInput,
   BrowserPersonalApplicationListStatus,
 } from "./browser-personal-applications.js";
-import { FreeeBrowserClient } from "./browser.js";
+import { FreeeBrowserClient, type BrowserLeaveBalanceOptions } from "./browser.js";
 import { createClockActionFingerprint } from "./clock-preview.js";
 import { FreeeClient } from "./client.js";
 import { createCredentialProvider, type CredentialProvider } from "./credentials.js";
@@ -49,6 +49,7 @@ export interface FreeeOperations {
     options?: { companyId?: number },
   ): Promise<Record<string, unknown>>;
   getTeamStatus(options?: TeamStatusOptions): Promise<Record<string, unknown>>;
+  getLeaveBalances(options?: BrowserLeaveBalanceOptions): Promise<Record<string, unknown>>;
   getMonthlyStatus(period?: string): Promise<Record<string, unknown>>;
   prepareMonthlyAction(action: BrowserMonthlyAction, period?: string): Promise<Record<string, unknown>>;
   commitMonthlyAction(
@@ -296,6 +297,16 @@ export class FreeeService implements FreeeOperations {
     }
     const { api } = await this.getApiRuntime();
     return { backend: this.backend, ...await getTeamStatus(api, options) };
+  }
+
+  async getLeaveBalances(
+    options: BrowserLeaveBalanceOptions = {},
+  ): Promise<Record<string, unknown>> {
+    this.requireBackend("playwright", "Leave balance lookup");
+    return {
+      backend: this.backend,
+      ...asRecord(await this.withBrowser((client) => client.getLeaveBalances(options))),
+    };
   }
 
   async getMonthlyStatus(period?: string): Promise<Record<string, unknown>> {

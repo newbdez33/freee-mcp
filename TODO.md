@@ -61,6 +61,7 @@
 - [x] 提交、撤回月次勤怠申请，并使用 prepare/commit fingerprint 校验和写后状态复核
 - [x] 完成 API 版部门状态原型并验证其受 `company_admin` 限制，当前角色不可用
 - [x] 在 Playwright 分支实现 `team status`，读取当前可见范围的成员、月次不备和工时汇总
+- [x] 在 Playwright 分支实现 `leave balances`，只读读取本人或指定成员的 有休/特別休暇/代休 残数；名字不唯一或页面结构变化时 fail closed
 - [ ] 在 Playwright 分支增加指定日期的成员出退勤明细
 - [ ] 支持选择是否递归汇总子部门
 - [x] 汇总部门締め申請状态和非零不备成员

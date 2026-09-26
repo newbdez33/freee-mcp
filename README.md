@@ -120,6 +120,7 @@ This table describes the current `main` branch. “Covered” means the behavior
 | Withdraw a pending personal application | Playwright | Complete with prepare/commit fingerprint | Covered | Validated (`LV-W07`) |
 | Cancel an approved personal application | Playwright | Complete; creates and verifies a separate cancellation application | Covered | Validated through final approval (`LV-W09`) |
 | Department monthly attendance and issue summary | Playwright | Complete for the currently visible management scope | Covered | Current-month summary and date-mismatch guard validated |
+| Read paid, special, and compensatory leave balances | Playwright | Complete for the current employee and one named/ID visible member; unavailable values stay explicit | Covered | Read-only self and member reads validated |
 | Department daily punch status through Public API | API | Implemented but role-gated | Covered | Expected `attendance_manager` denial validated; success with a capable role pending (`LV-R08`) |
 | Date-specific employee punch detail | Playwright | Not implemented | — | — |
 | Recursive child-department aggregation | Playwright | Not implemented | — | — |
@@ -174,6 +175,7 @@ The workflow repeats all validation, creates or verifies an annotated `vVERSION`
 | `freee_clock_prepare_action` | Read-only preview | Generate a punch preview and fingerprint |
 | `freee_clock_commit_action` | Write | Revalidate the fingerprint and create one real punch |
 | `freee_team_status` | Read-only | Read a department or current web-management monthly summary |
+| `freee_leave_balances` | Read-only | Read paid, special, and compensatory leave balances for the current employee or one named/ID member |
 | `freee_monthly_status` | Read-only | Read a requested or currently selected personal 月次勤怠締め month |
 | `freee_monthly_prepare_action` | Read-only preview | Generate a monthly submit or withdrawal preview and fingerprint |
 | `freee_monthly_commit_action` | Write | Revalidate the fingerprint and submit or withdraw one monthly application |
@@ -214,6 +216,7 @@ npm run freee -- auth status
 npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
+npm run freee -- leave balances [--employee NAME | --employee-id ID]
 npm run freee -- monthly status --period YYYY-MM
 npm run freee -- requests options --date YYYY-MM-DD
 npm run freee -- requests list --status pending|returned|approved|all --page 1
@@ -282,6 +285,8 @@ Commands emit JSON and identify the selected business backend. Before a real pun
 MCP and CLI writes follow the same automation-first safety model. Every real action uses a prepare tool or command and an unchanged fingerprint, but the user authorizes the human-readable result and scope rather than the hash. A precise instruction can authorize one action or an explicit set immediately; a scoped policy can cover punches, personal monthly submit/withdraw, personal application create/cancel/withdraw, general approvals/returns, and dedicated monthly approvals/returns. Its boundary may define identity, action, dates or periods, candidate conditions, reasons, limits, dependency order, failure handling, and an expressly authorized follow-up chain. If the original request is already precise, the Agent does not ask again after prepare. It validates each fingerprint, commits, and verifies internally through sequential single-item calls. Known pre-click changes can be reread and reprepared under the same authorization when they still match. Unknown writes are never retried. Development, testing, inspection, and vague help requests authorize no real write.
 
 The API implementation of `team status` is complete and tested, but the `attendance_manager` role used at GCU cannot read employee memberships through the Public API. The API backend returns the permission error and does not fall back to Playwright.
+
+`leave balances` is a read-only Playwright command that reads the balances freee already displays on one employee's attendance-edit page. With no member option it reads the current employee; `--employee-id ID` opens that exact freee employee; `--employee NAME` resolves the name through the attendance monitor search and accepts one exact match or one unique partial match, while zero or multiple matches stop with `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` or `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` and list the candidate names. `--employee` and `--employee-id` are mutually exclusive. The result reports the paid-holiday aggregate and per-grant rows (`付与日数`/`消化数`/`残数`), each special-holiday row such as `夏季休暇`, each compensatory-holiday row, and the raw summary labels. The command never clicks a write control, and a value freee does not expose stays `null` or its raw label rather than being inferred.
 
 The Playwright backend supports System Keychain credentials, persistent login, personal punch status and actions, personal monthly attendance submit/withdraw, personal application list/detail/leave/work-time-correction/withdraw/approved-application cancellation, department monthly attendance summaries, general employee application handling, and dedicated monthly attendance review/approval/return. It enters the Employee Portal from the freee home page, reads personal punch controls, reads visible members, closing applications, attendance issues, monthly work totals, and one exact applicant's daily attendance table, and processes authorized applications through the application workflow. The browser profile stays outside the repository.
 

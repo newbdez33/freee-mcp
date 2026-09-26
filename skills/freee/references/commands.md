@@ -13,6 +13,7 @@ Prefer these tools for business operations when the host has loaded the installe
 | Punch preview | `freee_clock_prepare_action` | Read-only; returns fingerprint |
 | Punch execution | `freee_clock_commit_action` | Real write; exact action or active scoped policy, matching preview/fingerprint, and `confirm: true` required |
 | Department/month status | `freee_team_status` | Read-only |
+| Leave balances | `freee_leave_balances` | Read-only; paid, special, and compensatory balances for the current employee or one named/ID member |
 | Personal monthly status | `freee_monthly_status` | Read-only |
 | Monthly submit/withdraw preview | `freee_monthly_prepare_action` | Read-only; returns fingerprint |
 | Monthly submit/withdraw execution | `freee_monthly_commit_action` | Real write; exact action or active scoped policy, matching preview/fingerprint, and `confirm: true` required |
@@ -65,6 +66,7 @@ npm run freee -- browser status
 npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
+npm run freee -- leave balances
 npm run freee -- monthly status --period 2026-08
 npm run freee -- requests options --date 2026-08-14
 npm run freee -- requests list --status all --page 1
@@ -117,6 +119,7 @@ npm run freee -- browser status
 npm run freee -- clock status
 npm run freee -- team status
 npm run freee -- team status --date YYYY-MM-DD
+npm run freee -- leave balances [--employee NAME | --employee-id ID]
 npm run freee -- approvals list
 npm run freee -- approvals list --status pending|returned|approved|all --page PAGE
 npm run freee -- approvals detail --id APPLICATION_NO
@@ -131,6 +134,8 @@ npm run freee -- requests detail --id APPLICATION_NO
 `team status --date` currently accepts a date only when its month matches the month selected by freee. `--company-id` and `--group-id` are not accepted in the Playwright branch; the CLI uses the company and visible management range already selected by freee and never guesses another one. `me` is not implemented for Playwright.
 
 `monthly status --period` selects and reads that personal work month in freee's attendance calendar. Playwright derives the matching payment month from freee's currently displayed payment-month/work-month pair, uses the bounded official year/month navigator, and verifies both resulting months before parsing. Omitting `--period` reads the currently selected month. It returns `unsubmitted`, `pending`, `approved`, or `returned`, preserves the corresponding freee label, identifies the exact matching monthly application when present, lists only currently available actions, and returns visible calendar warnings. Evaluate every warning against the exact instruction or active policy; an uncovered warning stops that item.
+
+`leave balances` reads the balances freee already displays on one employee's attendance-edit page. With no member option it reads the current employee. `--employee-id ID` opens that exact freee employee. `--employee NAME` resolves the name through the attendance monitor search: one exact match, or one unique partial match, is accepted; zero or multiple matches stop with `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` or `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` and list the candidate names. `--employee` and `--employee-id` are mutually exclusive. The result reports the paid-holiday aggregate and per-grant rows (`付与日数`/`消化数`/`残数`), each special-holiday row (for example `夏季休暇`), each compensatory-holiday row, and the raw summary labels. This command is strictly read-only; it never clicks a write control, and a value freee does not expose stays `null` or its raw label instead of being inferred.
 
 ## Monthly attendance actions
 
@@ -379,6 +384,10 @@ Important error codes:
 - `BROWSER_INTERACTION_REQUIRED`: set headless false and retry only while the user is present to complete the official freee interaction.
 - `BROWSER_NAVIGATION_BLOCKED` or `BROWSER_PAGE_AMBIGUOUS`: stop. Do not broaden selectors, allow a new host, or force a click without reviewing the current freee page structure.
 - `BROWSER_TEAM_PAGE_UNEXPECTED`: freee changed the attendance-monitor table schema; stop rather than returning misaligned employee data.
+- `BROWSER_LEAVE_BALANCE_PAGE_UNEXPECTED` or `BROWSER_LEAVE_BALANCE_PAGE_UNAVAILABLE`: freee changed the employee attendance/leave-balance page or its summary; stop rather than returning misaligned balances.
+- `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND`: the attendance-monitor search matched no employee. Report the requested name; do not substitute a similar employee.
+- `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS`: more than one employee matched. Show the returned candidate names and ask the user to choose an exact name or `--employee-id`.
+- `BROWSER_LEAVE_BALANCE_EMPLOYEE_SEARCH_UNAVAILABLE`: the attendance-monitor employee search field was not unique and visible; stop instead of guessing the employee.
 - `BROWSER_APPROVAL_PAGE_UNEXPECTED` or `BROWSER_APPROVAL_DETAIL_UNEXPECTED`: freee changed the supported application list/detail view; stop without writing.
 - `BROWSER_MONTHLY_PAGE_UNEXPECTED` or `BROWSER_MONTHLY_PERIOD_AMBIGUOUS`: freee changed or ambiguously rendered the monthly workflow; stop without writing.
 - `ATTENDANCE_PERIOD_NAVIGATION_UNEXPECTED`: freee did not expose one unambiguous payment-month/work-month label or official year/month navigator; stop without reading or writing another month.
@@ -418,7 +427,7 @@ Important error codes:
 
 ## Current scope
 
-Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw and verified work-month navigation; synchronized employee-side personal application list/detail plus fingerprint-bound leave/work-time-correction creation (including exact `勤務時間を削除` requests), approved-application cancellation, and pending withdrawal; Playwright monthly department attendance-monitor summaries; synchronized paginated manager-side application list/detail plus fingerprint-bound single-item approval/return; and dedicated monthly closing review/approval/return with verified navigation to the applicant's work month.
+Implemented and usable: local STDIO MCP tools; the companion CLI; shared exclusive backend selection; System Keyring and temporary environment API configuration; OAuth login/automatic refresh; API identity lookup; API and Playwright personal punch status/actions; System Keychain web credentials; persistent controlled browser login; Playwright personal monthly status plus fingerprint-bound submit/withdraw and verified work-month navigation; synchronized employee-side personal application list/detail plus fingerprint-bound leave/work-time-correction creation (including exact `勤務時間を削除` requests), approved-application cancellation, and pending withdrawal; Playwright monthly department attendance-monitor summaries; read-only paid/special/compensatory leave balances for the current employee or one named/ID member; synchronized paginated manager-side application list/detail plus fingerprint-bound single-item approval/return; and dedicated monthly closing review/approval/return with verified navigation to the applicant's work month.
 
 Implemented but unavailable to the current API role: API-backed direct department member daily punch status. Do not fall back.
 

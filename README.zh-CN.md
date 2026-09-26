@@ -174,6 +174,7 @@ Codex 配置为未来或未经审查的写工具保留 `default_tools_approval_m
 | `freee_clock_prepare_action` | 只读预览 | 生成打卡预览和指纹 |
 | `freee_clock_commit_action` | 写入 | 重新校验指纹并创建一次真实打卡 |
 | `freee_team_status` | 只读 | 读取部门或当前网页管理范围的月度汇总 |
+| `freee_leave_balances` | 只读 | 读取本人或指定一名成员的有休、特别休暇、代休余额 |
 | `freee_monthly_status` | 只读 | 读取指定或当前选中的本人 `月次勤怠締め` 月份 |
 | `freee_monthly_prepare_action` | 只读预览 | 生成月次提交或撤回的预览和指纹 |
 | `freee_monthly_commit_action` | 写入 | 重新校验指纹并提交或撤回一条月次申请 |
@@ -214,6 +215,7 @@ npm run freee -- auth status
 npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
+npm run freee -- leave balances [--employee NAME | --employee-id ID]
 npm run freee -- monthly status --period YYYY-MM
 npm run freee -- requests options --date YYYY-MM-DD
 npm run freee -- requests list --status pending|returned|approved|all --page 1
@@ -282,6 +284,8 @@ npm run freee -- monthly-approvals commit-action \
 MCP 和 CLI 写操作遵循同一套自动化优先的安全模型。每个真实操作仍使用 prepare 和未变化的指纹，但用户授权的是人可读的结果与范围，而不是 hash。精确指令可直接授权单条或明确集合；范围策略可覆盖打卡、本人月次提交/撤回、本人申请创建/取消/撤回、一般批准/差戻し及专用月次批准/差戻し。范围可以定义身份、动作、日期/期间、候选条件、理由、上限、依赖顺序、失败处理和明确授权的后续链路。原请求已经准确时，Agent 不会在 prepare 后再次询问；它内部逐条校验指纹、commit 并验证。明确的点击前变化仍匹配授权时可以重新读取和 prepare，结果未知的写入绝不重试。开发、测试、调查和模糊的“帮我处理”不授权真实写入。
 
 API 版 `team status` 已实现并通过自动测试，但 GCU 使用的 `attendance_manager` 角色无法通过 Public API 读取员工归属。API 后端会返回权限错误，不会回退到 Playwright。
+
+`leave balances` 是一个只读的 Playwright 命令，读取 freee 已经在某位员工的勤怠编辑页上显示的余额。未指定成员时读取本人；`--employee-id ID` 直接打开该 freee 员工；`--employee NAME` 通过勤怠モニター搜索解析姓名，只接受一个完全匹配或一个唯一的部分匹配，0 个或多个匹配时会以 `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` 或 `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` 停止并返回候选姓名。`--employee` 与 `--employee-id` 互斥。结果包含有休汇总与每笔给付行（`付与日数`/`消化数`/`残数`）、每行特别休暇（如 `夏季休暇`）、每行代休，以及汇总标签的原始值。该命令不会点击任何写操作控件；freee 未显示的值保持为 `null` 或原始标签，绝不推断。
 
 Playwright 后端支持 System Keychain 凭据、持久登录、本人打卡状态与操作、本人月次提交/撤回、本人申请列表/详情/休假/勤務時間修正/撤回/已批准申请取消、部门月度汇总、一般员工申请处理以及专用月次审阅/批准/差戻し。它会从 freee 首页进入 Employee Portal，读取本人打卡控件、可见成员、締め申请、考勤问题、月度工时和单个申请人的准确逐日考勤表，并通过申请工作流处理已授权操作。浏览器 profile 位于仓库之外。
 

@@ -174,6 +174,7 @@ workflow は全検証を再実行し、現在の `main` commit に annotation �
 | `freee_clock_prepare_action` | 読み取り専用 preview | 打刻 preview と fingerprint を生成 |
 | `freee_clock_commit_action` | 書き込み | fingerprint を再検証し、実際の打刻を 1 件作成 |
 | `freee_team_status` | 読み取り専用 | 部門または現在の Web 管理範囲の月次集計を取得 |
+| `freee_leave_balances` | 読み取り専用 | 本人または指定した 1 名の有給・特別休暇・代休の残数を取得 |
 | `freee_monthly_status` | 読み取り専用 | 指定または選択中の本人 `月次勤怠締め` 月を取得 |
 | `freee_monthly_prepare_action` | 読み取り専用 preview | 月次提出または取下げの preview と fingerprint を生成 |
 | `freee_monthly_commit_action` | 書き込み | fingerprint を再検証し、月次申請を提出または取り下げ |
@@ -214,6 +215,7 @@ npm run freee -- auth status
 npm run freee -- me
 npm run freee -- clock status
 npm run freee -- team status
+npm run freee -- leave balances [--employee NAME | --employee-id ID]
 npm run freee -- monthly status --period YYYY-MM
 npm run freee -- requests options --date YYYY-MM-DD
 npm run freee -- requests list --status pending|returned|approved|all --page 1
@@ -282,6 +284,8 @@ npm run freee -- monthly-approvals commit-action \
 MCP と CLI の書き込みは、同じ automation-first 安全モデルに従います。各実操作は prepare と変更されていない fingerprint を使いますが、ユーザーが認可するのは hash ではなく人が理解できる結果と範囲です。正確な指示は単一操作または明示集合を直ちに認可でき、scoped policy は打刻、本人月次の提出/取下げ、本人申請の作成/取消/取下げ、一般承認/差戻し、専用月次承認/差戻しを対象にできます。identity、action、日付/期間、候補条件、理由、上限、依存順序、失敗処理、明示認可された後続 chain を境界に含められます。元の依頼が十分正確なら、Agent は prepare 後に再確認せず、単一項目ずつ fingerprint を検証して commit と書き込み後確認を行います。既知のクリック前変更は同じ認可にまだ一致すれば再読込・再 prepare でき、結果不明の書き込みは再試行しません。開発、テスト、調査、曖昧な支援依頼は実書き込みを認可しません。
 
 API 版 `team status` は実装・自動テスト済みですが、GCU で使われる `attendance_manager` role は Public API から従業員所属を参照できません。API バックエンドは権限エラーを返し、Playwright へフォールバックしません。
+
+`leave balances` は、1 名の勤怠編集ページに freee がすでに表示している残数を読み取る読み取り専用の Playwright コマンドです。メンバー指定がなければ本人を読み取ります。`--employee-id ID` はその freee 従業員 ID を直接開きます。`--employee NAME` は勤怠モニターの検索で名前を解決し、完全一致 1 件または一意な部分一致 1 件のみを受け付けます。0 件または複数件の場合は `BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND` または `BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS` で停止し、候補名を返します。`--employee` と `--employee-id` は同時に指定できません。結果には有給の集計と付与ごとの行（`付与日数`/`消化数`/`残数`）、`夏季休暇` などの特別休暇の各行、代休の各行、および要約ラベルの生値が含まれます。このコマンドは書き込み操作を一切クリックせず、freee が表示しない値は推測せず `null` または元のラベルのまま返します。
 
 Playwright バックエンドは System Keychain 認証情報、永続ログイン、本人打刻状態と操作、本人月次の提出/取下げ、本人申請の一覧/詳細/休暇/勤務時間修正/取下げ/承認済み申請の取消、部門月次集計、一般従業員申請処理、専用月次レビュー/承認/差戻しに対応します。freee ホームから Employee Portal に入り、本人打刻コントロール、表示可能メンバー、締め申請、勤怠不備、月次労働時間、対象申請者の正確な日次勤怠表を読み取り、申請ワークフローで許可された操作を処理します。ブラウザー profile はリポジトリ外に保存されます。
 

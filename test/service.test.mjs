@@ -94,6 +94,38 @@ test("shared service monthly approval commit requires the confirm assertion befo
   assert.equal(launches, 0);
 });
 
+test("shared service leave balances require the Playwright backend", async () => {
+  const service = new FreeeService("api");
+  let launches = 0;
+  service.withBrowser = async () => {
+    launches += 1;
+    return {};
+  };
+
+  await assert.rejects(
+    service.getLeaveBalances(),
+    (error) => error.code === "BACKEND_MISMATCH",
+  );
+  assert.equal(launches, 0);
+});
+
+test("shared service leave balances delegate to the browser client", async () => {
+  const service = new FreeeService("playwright");
+  service.withBrowser = async (operation) => operation({
+    getLeaveBalances: async (options) => ({
+      employeeId: options.employeeId,
+      period: options.period,
+      paidHoliday: { remainingDays: 11 },
+    }),
+  });
+
+  const result = await service.getLeaveBalances({ employeeId: 1716005 });
+
+  assert.equal(result.backend, "playwright");
+  assert.equal(result.employeeId, 1716005);
+  assert.equal(result.paidHoliday.remainingDays, 11);
+});
+
 test("shared service personal application commits require the confirm assertion before launching a browser", async () => {
   const service = new FreeeService("playwright");
   let launches = 0;

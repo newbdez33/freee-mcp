@@ -2234,3 +2234,95 @@ test("Playwright monthly withdrawal preview binds the exact pending application"
   assert.equal(result.preview.applicationDetail.application.id, "1234");
   assert.match(result.fingerprint, /^[a-f0-9]{64}$/);
 });
+
+function leaveBalanceSnapshot() {
+  return {
+    employeeName: "Member A",
+    summary: [
+      { label: "有休取得数", body: "0日" },
+      { label: "有休残数", body: "23日" },
+      { label: "代休残日数", body: "2日" },
+    ],
+    sections: [{
+      title: "年次有給休暇",
+      headers: ["有効期間", "付与日数", "消化数", "残数"],
+      rows: [["2026年2月1日〜2028年1月31日", "16日", "0日", "16日"]],
+    }],
+  };
+}
+
+test("Playwright leave balances read the current employee page by default", async () => {
+  const { client } = createFakeBrowser([]);
+  client.ensureAuthenticated = async () => {};
+  client.readHomeSelfContext = async () => ({ employeeId: 1715674, period: "2026-10" });
+  const opened = [];
+  client.openLeaveBalancePage = async (employeeId, period) => { opened.push([employeeId, period]); };
+  client.readLeaveBalanceSnapshot = async () => leaveBalanceSnapshot();
+
+  const result = await client.getLeaveBalances();
+
+  assert.deepEqual(opened, [[1715674, "2026-10"]]);
+  assert.equal(result.period, "2026-10");
+  assert.equal(result.employeeId, 1715674);
+  assert.equal(result.paidHoliday.remainingDays, 23);
+});
+
+test("Playwright leave balances accept an explicit employee id", async () => {
+  const { client } = createFakeBrowser([]);
+  client.ensureAuthenticated = async () => {};
+  client.readHomeSelfContext = async () => ({ employeeId: 1715674, period: "2026-10" });
+  const opened = [];
+  client.openLeaveBalancePage = async (employeeId, period) => { opened.push([employeeId, period]); };
+  client.readLeaveBalanceSnapshot = async () => leaveBalanceSnapshot();
+
+  const result = await client.getLeaveBalances({ employeeId: 1716005 });
+
+  assert.deepEqual(opened, [[1716005, "2026-10"]]);
+  assert.equal(result.employeeId, 1716005);
+  assert.equal(result.period, "2026-10");
+});
+
+test("Playwright leave balances resolve a member name through the monitor and fail closed", async () => {
+  const { client } = createFakeBrowser([]);
+  client.ensureAuthenticated = async () => {};
+  client.readHomeSelfContext = async () => ({ employeeId: 1715674, period: "2026-10" });
+  const opened = [];
+  client.openLeaveBalancePage = async (employeeId, period) => { opened.push([employeeId, period]); };
+  client.readLeaveBalanceSnapshot = async () => leaveBalanceSnapshot();
+  client.searchAttendanceMonitorMembers = async (name) => {
+    assert.equal(name, "田造 秋穂");
+    return [{ name: "田造 秋穂", employeeId: 1716005 }];
+  };
+
+  const result = await client.getLeaveBalances({ employee: "田造 秋穂" });
+  assert.deepEqual(opened, [[1716005, "2026-10"]]);
+  assert.equal(result.employeeId, 1716005);
+
+  client.searchAttendanceMonitorMembers = async () => [{ name: "田造 秋穂", employeeId: 1716005 }];
+  const partial = await client.getLeaveBalances({ employee: "田造" });
+  assert.equal(partial.employeeId, 1716005);
+
+  client.searchAttendanceMonitorMembers = async () => [
+    { name: "張 杰", employeeId: 1 },
+    { name: "張 昊天", employeeId: 2 },
+  ];
+  await assert.rejects(
+    client.getLeaveBalances({ employee: "張" }),
+    (error) => error.code === "BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS",
+  );
+
+  client.searchAttendanceMonitorMembers = async () => [];
+  await assert.rejects(
+    client.getLeaveBalances({ employee: "Nobody" }),
+    (error) => error.code === "BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND",
+  );
+
+  client.searchAttendanceMonitorMembers = async () => [
+    { name: "張 杰", employeeId: 1 },
+    { name: "張 杰", employeeId: 2 },
+  ];
+  await assert.rejects(
+    client.getLeaveBalances({ employee: "張 杰" }),
+    (error) => error.code === "BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS",
+  );
+});

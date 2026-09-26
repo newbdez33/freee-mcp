@@ -64,6 +64,11 @@ import {
   type NormalizedPersonalApplicationCreateInput,
 } from "./browser-personal-applications.js";
 import {
+  parseLeaveBalanceSnapshot,
+  type BrowserLeaveBalances,
+  type LeaveBalanceSnapshot,
+} from "./browser-leave-balances.js";
+import {
   parseAttendanceMonitorSnapshot,
   type BrowserTeamMemberStatus,
 } from "./browser-team.js";
@@ -132,6 +137,16 @@ export interface BrowserClockStatus {
 
 export interface BrowserTeamStatusOptions {
   date?: string;
+}
+
+export interface BrowserLeaveBalanceOptions {
+  employee?: string;
+  employeeId?: number;
+}
+
+export interface BrowserLeaveBalancesResult extends BrowserLeaveBalances {
+  period: string;
+  employeeId: number;
 }
 
 export function readPlaywrightRuntimeConfig(
@@ -393,6 +408,201 @@ export class FreeeBrowserClient {
       return { headers, rows, periodCandidates, selectedPeriod, periodDescriptors };
     });
     return parseAttendanceMonitorSnapshot(snapshot, options.date);
+  }
+
+  async getLeaveBalances(
+    options: BrowserLeaveBalanceOptions = {},
+  ): Promise<BrowserLeaveBalancesResult> {
+    await this.ensureAuthenticated();
+    const home = await this.readHomeSelfContext();
+    const employeeId = await this.resolveLeaveBalanceEmployeeId(options, home.employeeId);
+    await this.openLeaveBalancePage(employeeId, home.period);
+    const snapshot = await this.readLeaveBalanceSnapshot();
+    return { period: home.period, employeeId, ...parseLeaveBalanceSnapshot(snapshot) };
+  }
+
+  private async readHomeSelfContext(): Promise<{ employeeId: number; period: string }> {
+    const link = this.page.locator('[data-testid="勤怠カレンダー画面へ"]');
+    if (await link.count() !== 1 || !await link.isVisible()) {
+      throw new CliError(
+        "BROWSER_LEAVE_BALANCE_PAGE_UNAVAILABLE",
+        "The freee self attendance-calendar entry point was not unique and visible.",
+        { exitCode: 2 },
+      );
+    }
+    const target = parseWorkRecordsHref(await link.getAttribute("href"));
+    if (!target) {
+      throw new CliError(
+        "BROWSER_LEAVE_BALANCE_PAGE_UNAVAILABLE",
+        "The freee self attendance-calendar link did not expose one employee and month.",
+        { exitCode: 2 },
+      );
+    }
+    return target;
+  }
+
+  private async resolveLeaveBalanceEmployeeId(
+    options: BrowserLeaveBalanceOptions,
+    selfEmployeeId: number,
+  ): Promise<number> {
+    if (options.employeeId !== undefined) {
+      return options.employeeId;
+    }
+    if (options.employee === undefined) {
+      return selfEmployeeId;
+    }
+    return this.findEmployeeIdByName(options.employee);
+  }
+
+  private async findEmployeeIdByName(name: string): Promise<number> {
+    const candidates = await this.searchAttendanceMonitorMembers(name);
+    const target = normalizeEmployeeName(name);
+    const exactMatches = candidates.filter(
+      (candidate) => normalizeEmployeeName(candidate.name) === target,
+    );
+    if (exactMatches.length === 1) {
+      return exactMatches[0]!.employeeId;
+    }
+    const matches = exactMatches.length > 1 ? exactMatches : candidates;
+    if (matches.length === 0) {
+      throw new CliError(
+        "BROWSER_LEAVE_BALANCE_EMPLOYEE_NOT_FOUND",
+        "The attendance monitor exposed no employee whose name matched the request.",
+        { details: { requestedName: name }, exitCode: 2 },
+      );
+    }
+    if (matches.length > 1) {
+      throw new CliError(
+        "BROWSER_LEAVE_BALANCE_EMPLOYEE_AMBIGUOUS",
+        "The attendance monitor exposed more than one employee whose name matched the request.",
+        {
+          details: {
+            requestedName: name,
+            candidates: matches.map((match) => match.name),
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    return matches[0]!.employeeId;
+  }
+
+  private async searchAttendanceMonitorMembers(
+    name: string,
+  ): Promise<Array<{ name: string; employeeId: number }>> {
+    await this.openAttendanceMonitor();
+    const search = this.page.locator('input[type="search"]');
+    if (await search.count() !== 1 || !await search.isVisible()) {
+      throw new CliError(
+        "BROWSER_LEAVE_BALANCE_EMPLOYEE_SEARCH_UNAVAILABLE",
+        "The freee attendance monitor did not expose one visible employee search field.",
+        { exitCode: 2 },
+      );
+    }
+    await search.fill(name);
+    await this.page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+    await this.page.waitForTimeout(1_000);
+    return this.readAttendanceMonitorMemberLinks();
+  }
+
+  private async readAttendanceMonitorMemberLinks(): Promise<Array<{ name: string; employeeId: number }>> {
+    const rows = await this.page.evaluate(() => {
+      const table = document.querySelector("table");
+      if (!table) {
+        return [];
+      }
+      return Array.from(table.querySelectorAll<HTMLTableRowElement>('tbody tr[class*="BodyRow"]'))
+        .filter((row) => row.getClientRects().length > 0)
+        .map((row) => {
+          const cells = Array.from(row.querySelectorAll<HTMLElement>("th, td"));
+          const link = row.querySelector<HTMLAnchorElement>('a[href*="/employees/"]');
+          return {
+            name: cells[3]?.innerText.trim().replace(/\s+/g, " ") ?? "",
+            href: link?.getAttribute("href") ?? null,
+          };
+        });
+    });
+    return rows.flatMap(({ name, href }) => {
+      const match = href?.match(/\/employees\/(\d+)/);
+      return name && match ? [{ name, employeeId: Number(match[1]) }] : [];
+    });
+  }
+
+  private async openLeaveBalancePage(employeeId: number, period: string): Promise<void> {
+    const [year, month] = period.split("-");
+    const target = `${freeeHomeUrl}attendances#/work_records/${year}/${Number(month)}/employees/${employeeId}`;
+    try {
+      await this.page.goto(target, { waitUntil: "domcontentloaded" });
+      await this.page.reload({ waitUntil: "domcontentloaded" });
+    } catch {
+      throw new CliError(
+        "BROWSER_NAVIGATION_FAILED",
+        "Could not open the freee employee attendance page.",
+        { exitCode: 2 },
+      );
+    }
+    this.assertOfficialPage();
+    await this.settleAttendancePage();
+    const url = new URL(this.page.url());
+    if (url.pathname !== "/attendances" || !url.hash.includes(`/employees/${employeeId}`)) {
+      throw new CliError(
+        "BROWSER_LEAVE_BALANCE_PAGE_UNEXPECTED",
+        "freee did not open the expected employee attendance page.",
+        { exitCode: 2 },
+      );
+    }
+  }
+
+  private async readLeaveBalanceSnapshot(): Promise<LeaveBalanceSnapshot> {
+    this.assertOfficialPage();
+    return this.page.evaluate(() => {
+      const visible = (element: Element) => element.getClientRects().length > 0;
+      const employeeName = Array.from(document.querySelectorAll("h1.vb-pageTitle"))
+        .map((heading) => heading.textContent?.trim().replace(/\s+/g, " ") ?? "")
+        .find((value) => value !== "") ?? null;
+      const summary = Array.from(document.querySelectorAll(".employee-work-record-summary .items.main-items .item"))
+        .filter(visible)
+        .map((item) => ({
+          label: item.querySelector(".label")?.textContent?.trim().replace(/\s+/g, " ") ?? "",
+          body: item.querySelector(".body")?.textContent?.trim().replace(/\s+/g, " ") ?? "",
+        }))
+        .filter((item) => item.label !== "");
+      const sections: Array<{ title: string; headers: string[]; rows: string[][] }> = [];
+      for (const heading of Array.from(document.querySelectorAll("h2.vb-sectionTitle"))) {
+        const title = heading.textContent?.trim().replace(/\s+/g, " ") ?? "";
+        if (!["年次有給休暇", "特別休暇", "代休"].includes(title)) {
+          continue;
+        }
+        let node: Element | null = heading.nextElementSibling;
+        let table: Element | null = null;
+        for (let hop = 0; node && hop < 5; hop += 1) {
+          if (node.matches("div.vb-listTable")) {
+            table = node;
+            break;
+          }
+          const found = node.querySelector("div.vb-listTable");
+          if (found) {
+            table = found;
+            break;
+          }
+          node = node.nextElementSibling;
+        }
+        const element = table?.querySelector("table") ?? null;
+        sections.push({
+          title,
+          headers: element
+            ? Array.from(element.querySelectorAll("thead th"))
+              .map((cell) => cell.textContent?.trim().replace(/\s+/g, " ") ?? "")
+            : [],
+          rows: element
+            ? Array.from(element.querySelectorAll("tbody tr")).map((row) =>
+              Array.from(row.querySelectorAll("td"))
+                .map((cell) => cell.textContent?.trim().replace(/\s+/g, " ") ?? ""))
+            : [],
+        });
+      }
+      return { employeeName, summary, sections };
+    });
   }
 
   async getMonthlyStatus(period?: string): Promise<BrowserMonthlyStatus> {
@@ -4023,6 +4233,19 @@ export class FreeeBrowserClient {
       );
     }
   }
+}
+
+function parseWorkRecordsHref(href: string | null): { employeeId: number; period: string } | null {
+  const match = href?.match(/\/attendances#\/work_records\/(\d{4})\/(\d{1,2})\/employees\/(\d+)/);
+  if (!match) {
+    return null;
+  }
+  const [, year, month, employeeId] = match;
+  return { employeeId: Number(employeeId), period: `${year}-${month!.padStart(2, "0")}` };
+}
+
+function normalizeEmployeeName(value: string): string {
+  return value.trim().replace(/\s+/g, "");
 }
 
 function isSameApprovalTarget(

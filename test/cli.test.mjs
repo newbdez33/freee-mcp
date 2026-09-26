@@ -15,6 +15,7 @@ test("the compiled CLI entry point is runnable without credentials for help", as
   assert.match(result.stdout, new RegExp(`freee-agent ${packageJson.version.replaceAll(".", "\\.")}`));
   assert.match(result.stdout, /clock in\|break-start\|break-end\|out/);
   assert.match(result.stdout, /team status/);
+  assert.match(result.stdout, /leave balances/);
   assert.match(result.stdout, /monthly status/);
   assert.match(result.stdout, /monthly prepare-action/);
   assert.match(result.stdout, /monthly commit-action/);
@@ -194,6 +195,29 @@ test("personal work-time deletion rejects an unknown action before launching a b
       assert.equal(error.code, 2);
       const parsed = JSON.parse(error.stderr);
       assert.equal(parsed.error.code, "INVALID_PERSONAL_APPLICATION_WORK_TIME_ACTION");
+      return true;
+    },
+  );
+});
+
+test("leave balances rejects conflicting member options before launching a browser", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "dist/cli.js",
+      "leave",
+      "balances",
+      "--employee",
+      "Member A",
+      "--employee-id",
+      "1716005",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, FREEE_BACKEND: "playwright" },
+    }),
+    (error) => {
+      assert.equal(error.code, 2);
+      const parsed = JSON.parse(error.stderr);
+      assert.equal(parsed.error.code, "INVALID_ARGUMENTS");
       return true;
     },
   );

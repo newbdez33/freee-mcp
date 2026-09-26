@@ -137,6 +137,12 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  if (group === "leave" && command === "balances") {
+    const options = parseLeaveBalanceOptions(rest);
+    printSuccess("leave balances", await service.getLeaveBalances(options));
+    return;
+  }
+
   if (group === "monthly" && command === "status") {
     const options = parseMonthlyOptions(rest, { allowAction: false, allowCommit: false });
     printSuccess("monthly status", await service.getMonthlyStatus(options.period));
@@ -651,6 +657,50 @@ function parseTeamOptions(args: string[]): { companyId?: number; groupId?: numbe
   };
 }
 
+function parseLeaveBalanceOptions(
+  args: string[],
+): { employee?: string; employeeId?: number } {
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs({
+      args,
+      options: {
+        employee: { type: "string" },
+        "employee-id": { type: "string" },
+      },
+      strict: true,
+      allowPositionals: false,
+    });
+  } catch {
+    throw new CliError("INVALID_ARGUMENTS", "Invalid leave balance options.", { exitCode: 2 });
+  }
+
+  const employee = parsed.values.employee;
+  if (employee !== undefined && (typeof employee !== "string" || employee.trim().length === 0)) {
+    throw new CliError(
+      "INVALID_LEAVE_BALANCE_EMPLOYEE",
+      "`--employee` must be a non-empty employee display name.",
+      { exitCode: 2 },
+    );
+  }
+  const employeeId = parsePositiveIntegerOption(
+    typeof parsed.values["employee-id"] === "string" ? parsed.values["employee-id"] : undefined,
+    "employee-id",
+  );
+  if (employee !== undefined && employeeId !== undefined) {
+    throw new CliError(
+      "INVALID_ARGUMENTS",
+      "`leave balances` accepts either `--employee` or `--employee-id`, not both.",
+      { exitCode: 2 },
+    );
+  }
+
+  return {
+    ...(typeof employee === "string" ? { employee } : {}),
+    ...(employeeId === undefined ? {} : { employeeId }),
+  };
+}
+
 function parseApprovalListOptions(args: string[]): { status: BrowserApprovalListStatus; page: number } {
   try {
     const parsed = parseArgs({
@@ -1023,6 +1073,7 @@ function printHelp(): void {
   process.stdout.write("  freee-agent me\n");
   process.stdout.write("  freee-agent clock status [--company-id ID] [--date YYYY-MM-DD]\n");
   process.stdout.write("  freee-agent team status [--company-id ID] [--group-id ID] [--date YYYY-MM-DD]\n");
+  process.stdout.write("  freee-agent leave balances [--employee NAME | --employee-id ID]\n");
   process.stdout.write("  freee-agent monthly status [--period YYYY-MM]\n");
   process.stdout.write("  freee-agent monthly prepare-action --action submit|withdraw [--period YYYY-MM]\n");
   process.stdout.write("  freee-agent monthly commit-action --action submit|withdraw --fingerprint SHA256 [--period YYYY-MM] --confirm\n");

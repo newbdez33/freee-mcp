@@ -286,6 +286,52 @@ export function isVerifiedCreatedWorkTimeDeletion(
     && created.content === "勤務時間を削除";
 }
 
+export function isVerifiedCreatedWorkTimeReplacement(
+  application: Pick<
+    NormalizedPersonalApplicationCreateInput,
+    "kind" | "date" | "workTimeAction" | "clockIn" | "clockOut"
+  >,
+  created: Pick<BrowserApprovalSummary, "type" | "targetDate" | "content">,
+): boolean {
+  if (application.kind !== "work-time-correction"
+      || application.workTimeAction !== "replace"
+      || application.clockIn === null
+      || application.clockOut === null) {
+    return false;
+  }
+  const stored = storedWorkTimeClockRange(created.content);
+  return created.type === "勤務時間修正"
+    && created.targetDate === application.date.replaceAll("-", "/")
+    && stored?.clockIn === application.clockIn
+    && stored?.clockOut === application.clockOut;
+}
+
+function storedWorkTimeClockRange(
+  content: string | null,
+): { clockIn: string; clockOut: string } | null {
+  if (content === null) {
+    return null;
+  }
+  const marker = "出退勤時間";
+  const markerAt = content.indexOf(marker);
+  const sectionStart = markerAt < 0 ? 0 : markerAt + marker.length;
+  const breakAt = markerAt < 0 ? -1 : content.indexOf("休憩時間", sectionStart);
+  const section = content.slice(sectionStart, breakAt < 0 ? content.length : breakAt);
+  const tokens = [...section.matchAll(
+    /未入力|([0-9]{1,2}):([0-9]{2})\s*[〜～~\-–—]\s*([0-9]{1,2}):([0-9]{2})/g,
+  )];
+  const chosen = markerAt < 0
+    ? tokens.find((token) => token[1] !== undefined)
+    : tokens[tokens.length - 1];
+  if (!chosen?.[1] || !chosen[2] || !chosen[3] || !chosen[4]) {
+    return null;
+  }
+  return {
+    clockIn: `${chosen[1].padStart(2, "0")}:${chosen[2]}`,
+    clockOut: `${chosen[3].padStart(2, "0")}:${chosen[4]}`,
+  };
+}
+
 export function createPersonalApplicationWithdrawFingerprint(
   preview: BrowserPersonalApplicationDetail,
 ): string {

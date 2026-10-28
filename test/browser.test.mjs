@@ -1778,6 +1778,226 @@ test("Playwright personal application route fails closed when multiple options e
   assert.deepEqual(state.clicks, []);
 });
 
+test("Playwright work-time clock selection clicks the exact option instead of ArrowDown and Enter", () => {
+  for (const method of ["selectClockTime", "commitClockTimeOption", "assertCommittedClockTime"]) {
+    const source = FreeeBrowserClient.prototype[method].toString();
+    assert.equal(source.includes("ArrowDown"), false, method);
+    assert.equal(source.includes("\"Enter\""), false, method);
+    assert.equal(source.includes(".fill("), false, method);
+  }
+  const commit = FreeeBrowserClient.prototype.commitClockTimeOption.toString();
+  assert.equal(commit.includes("aria-controls"), true);
+  assert.match(commit, /\.click\(\)/);
+  assert.match(commit, /press\("Tab"\)/);
+});
+
+test("Playwright work-time correction commits each requested clock option", async () => {
+  const { client } = createFakeBrowser([]);
+  const form = installWorkTimeClockForm(client);
+
+  const route = await client.fillWorkTimeCorrectionForm(workTimeReplacementInput());
+
+  assert.equal(route, "勤怠申請");
+  assert.deepEqual(form.optionClicks, [
+    ["出勤時刻_時", "10"],
+    ["出勤時刻_分", "00"],
+    ["退勤時刻_時", "20"],
+    ["退勤時刻_分", "00"],
+    ["休憩開始時刻_時", "12"],
+    ["休憩開始時刻_分", "00"],
+    ["休憩終了時刻_時", "13"],
+    ["休憩終了時刻_分", "00"],
+  ]);
+  assert.deepEqual(form.presses, Array(8).fill("Tab"));
+  assert.deepEqual(form.fills, []);
+  assert.deepEqual(form.waits, Array(8).fill(null).flatMap(() => [100, 200]));
+  assert.deepEqual(form.trace.slice(0, 4), [
+    "open:出勤時刻_時",
+    "choose:出勤時刻_時:10",
+    "tab:出勤時刻_時",
+    "read:出勤時刻_時:10",
+  ]);
+});
+
+test("Playwright work-time correction rejects a clock option that is missing or ambiguous", async () => {
+  for (const optionCount of [0, 2]) {
+    const { client } = createFakeBrowser([]);
+    const form = installWorkTimeClockForm(client, {
+      optionCountFor: () => optionCount,
+    });
+
+    await assert.rejects(
+      client.fillWorkTimeCorrectionForm(workTimeReplacementInput()),
+      (error) => error.code === "PERSONAL_APPLICATION_TIME_UNAVAILABLE"
+        && error.details.optionCount === optionCount
+        && error.details.label === "出勤時刻"
+        && error.details.time === "10:00",
+    );
+    assert.deepEqual(form.optionClicks, []);
+    assert.deepEqual(form.presses, []);
+    assert.deepEqual(form.fills, []);
+  }
+});
+
+test("Playwright work-time correction rejects a clock value that does not stick", async () => {
+  const { client } = createFakeBrowser([]);
+  const form = installWorkTimeClockForm(client, {
+    revertOnTab: () => "09",
+  });
+
+  await assert.rejects(
+    client.fillWorkTimeCorrectionForm(workTimeReplacementInput()),
+    (error) => error.code === "PERSONAL_APPLICATION_TIME_UNAVAILABLE"
+      && error.details.label === "出勤時刻"
+      && error.details.time === "10:00"
+      && error.details.optionCount === undefined,
+  );
+  assert.deepEqual(form.optionClicks, [["出勤時刻_時", "10"]]);
+  assert.deepEqual(form.presses, ["Tab"]);
+  assert.deepEqual(form.trace, [
+    "open:出勤時刻_時",
+    "choose:出勤時刻_時:10",
+    "tab:出勤時刻_時",
+    "read:出勤時刻_時:09",
+  ]);
+});
+
+test("Playwright work-time correction rejects a clock value that reverts after the field changes", async () => {
+  const { client } = createFakeBrowser([]);
+  installWorkTimeClockForm(client, {
+    valueOnLaterRead: (name) => (name.endsWith("_時") ? "09" : "00"),
+  });
+
+  await assert.rejects(
+    client.fillWorkTimeCorrectionForm(workTimeReplacementInput()),
+    (error) => error.code === "PERSONAL_APPLICATION_TIME_UNAVAILABLE"
+      && error.details.label === "出勤時刻"
+      && error.details.time === "10:00",
+  );
+});
+
+function workTimeReplacementInput() {
+  return normalizePersonalApplicationCreateInput({
+    kind: "work-time-correction",
+    date: "2026-10-22",
+    workTimeAction: "replace",
+    clockIn: "10:00",
+    clockOut: "20:00",
+    breakStart: "12:00",
+    breakEnd: "13:00",
+  });
+}
+
+function installWorkTimeClockForm(client, {
+  optionCountFor,
+  revertOnTab,
+  valueOnLaterRead,
+} = {}) {
+  const expected = {
+    "出勤時刻_時": "10",
+    "出勤時刻_分": "00",
+    "退勤時刻_時": "20",
+    "退勤時刻_分": "00",
+    "休憩開始時刻_時": "12",
+    "休憩開始時刻_分": "00",
+    "休憩終了時刻_時": "13",
+    "休憩終了時刻_分": "00",
+  };
+  const form = {
+    presses: [],
+    fills: [],
+    optionClicks: [],
+    waits: [],
+    trace: [],
+  };
+  const values = {};
+  const reads = {};
+  let activeName = null;
+  client.selectApplicationDate = async () => {};
+  client.readPersonalApplicationRoute = async () => "勤怠申請";
+  client.captureDiagnosticScreenshot = async () => {};
+  client.page.waitForTimeout = async (ms) => {
+    form.waits.push(ms);
+  };
+  client.page.keyboard = {
+    async press(key) {
+      form.presses.push(key);
+      form.trace.push(`tab:${activeName}`);
+      if (key === "Tab" && activeName && revertOnTab) {
+        values[activeName] = revertOnTab(activeName, values[activeName]);
+      }
+    },
+  };
+  client.page.getByRole = (role, options) => {
+    assert.equal(role, "combobox");
+    assert.equal(options.exact, true);
+    const name = options.name;
+    assert.equal(Object.hasOwn(expected, name), true);
+    return {
+      async count() { return 1; },
+      async isVisible() { return true; },
+      async isEnabled() { return true; },
+      async click() {
+        activeName = name;
+        form.trace.push(`open:${name}`);
+      },
+      async getAttribute(attribute) {
+        assert.equal(attribute, "aria-controls");
+        return `clock-${name}`;
+      },
+      async fill(value) { form.fills.push([name, value]); },
+      async press(key) { form.presses.push(key); },
+      async inputValue() {
+        reads[name] = (reads[name] ?? 0) + 1;
+        const selected = values[name] ?? "";
+        const displayed = reads[name] > 1 && valueOnLaterRead
+          ? valueOnLaterRead(name, selected)
+          : selected;
+        form.trace.push(`read:${name}:${displayed}`);
+        return displayed;
+      },
+    };
+  };
+  client.page.locator = (selector) => {
+    if (selector === '[data-testid="申請理由"]') {
+      return { async fill() {} };
+    }
+    const match = /^\[id="clock-(.+)"\]$/.exec(selector);
+    assert.ok(match, selector);
+    const name = match[1];
+    return {
+      async count() { return 1; },
+      async isVisible() { return true; },
+      async getAttribute(attribute) {
+        return attribute === "role" ? "listbox" : null;
+      },
+      getByRole(role, options) {
+        assert.equal(role, "option");
+        assert.equal(options.exact, true);
+        assert.equal(options.name, expected[name]);
+        const count = optionCountFor ? optionCountFor(name, options.name) : 1;
+        return {
+          async count() { return count; },
+          first() {
+            return {
+              async evaluate(apply) {
+                form.optionClicks.push([name, options.name]);
+                form.trace.push(`choose:${name}:${options.name}`);
+                const element = {
+                  click() { values[name] = options.name; },
+                };
+                apply(element);
+                assert.equal(values[name], options.name);
+              },
+            };
+          },
+        };
+      },
+    };
+  };
+  return form;
+}
+
 test("Playwright work-time deletion fails closed when the exact option is missing or ambiguous", async () => {
   for (const availableRoles of [[], ["radio", "checkbox"]]) {
     const { client, state } = createFakeBrowser([]);
@@ -1930,6 +2150,95 @@ test("Playwright work-time deletion commit verifies the exact new deletion reque
   assert.equal(result.verified, true);
   assert.equal(result.result.application.content, "勤務時間を削除");
 });
+
+test("Playwright work-time replacement commit verifies stored clock-in and clock-out", async () => {
+  const requested = workTimeReplacementInput();
+  const matching = await commitWorkTimeReplacement(requested, "10:00 ～ 20:00（10時間0分）");
+  const matched = await matching.client.commitPersonalApplicationCreate(
+    requested,
+    matching.fingerprint,
+    true,
+  );
+  assert.equal(matching.clicks, 1);
+  assert.equal(matched.verified, true);
+  assert.equal(matched.result.application.content, "10:00 ～ 20:00（10時間0分）");
+
+  const storedDefaults = await commitWorkTimeReplacement(
+    requested,
+    "09:00〜18:00 12:00〜13:00",
+  );
+  await assert.rejects(
+    storedDefaults.client.commitPersonalApplicationCreate(
+      requested,
+      storedDefaults.fingerprint,
+      true,
+    ),
+    (error) => error.code === "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN"
+      && error.details.expected.clockIn === "10:00"
+      && error.details.expected.clockOut === "20:00"
+      && error.details.actual.content === "09:00〜18:00 12:00〜13:00",
+  );
+  assert.equal(storedDefaults.clicks, 1);
+});
+
+function commitWorkTimeReplacement(application, content) {
+  const { client } = createFakeBrowser([]);
+  const fingerprint = "7".repeat(64);
+  const state = { clicks: 0 };
+  client.preparePersonalApplicationCreate = async () => {
+    client.preparedPersonalApplicationFirstPageIds = ["30"];
+    return {
+      action: "create",
+      fingerprint,
+      preview: {
+        application,
+        typeLabel: "勤務時間修正",
+        route: "勤怠申請",
+        existingFirstPage: { count: 1, fingerprint: "a".repeat(64) },
+      },
+    };
+  };
+  client.page.getByRole = (role, options) => {
+    assert.equal(role, "button");
+    assert.equal(options.name, "申請");
+    return {
+      async count() { return 1; },
+      async isVisible() { return true; },
+      async isEnabled() { return true; },
+      async click() { state.clicks += 1; },
+    };
+  };
+  client.readCurrentPersonalApplicationDetailSnapshot = async () => ({
+    applicationId: "31",
+    fields: [{ label: "申請内容", value: content }],
+    tables: [],
+    detailLines: [content],
+    workTimeChange: null,
+    availableActions: ["withdraw"],
+  });
+  client.getPersonalApplications = async () => ({
+    applications: [{
+      id: "31",
+      status: "申請中",
+      applicant: null,
+      type: "勤務時間修正",
+      targetDate: "2026/10/22",
+      content,
+      reason: null,
+      appliedAt: "2026/10/28",
+      currentApprover: null,
+      checkResult: null,
+    }, {
+      id: "30",
+      status: "承認済",
+    }],
+  });
+  return {
+    client,
+    fingerprint,
+    get clicks() { return state.clicks; },
+  };
+}
 
 test("Playwright personal application creation binds its preview and verifies one new item", async () => {
   const { client } = createFakeBrowser([]);

@@ -50,6 +50,7 @@ import {
   createPersonalApplicationListFingerprint,
   createPersonalApplicationWithdrawFingerprint,
   isVerifiedCreatedWorkTimeDeletion,
+  isVerifiedCreatedWorkTimeReplacement,
   normalizePersonalApplicationCreateInput,
   normalizePersonalApplicationReason,
   type BrowserPersonalApplicationCapability,
@@ -1015,6 +1016,34 @@ export class FreeeBrowserClient {
               type: "勤務時間修正",
               targetDate: prepared.preview.application.date.replaceAll("-", "/"),
               content: "勤務時間を削除",
+            },
+            actual: {
+              id: result.application.id,
+              type: result.application.type,
+              targetDate: result.application.targetDate,
+              content: result.application.content,
+            },
+          },
+          exitCode: 2,
+        },
+      );
+    }
+    if (prepared.preview.application.workTimeAction === "replace"
+        && !isVerifiedCreatedWorkTimeReplacement(
+          prepared.preview.application,
+          result.application,
+        )) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
+        "freee did not store the requested clock-in and clock-out on the new 勤務時間修正 application. Do not retry; inspect the application before any further write.",
+        {
+          details: {
+            action: "create",
+            expected: {
+              type: "勤務時間修正",
+              targetDate: prepared.preview.application.date.replaceAll("-", "/"),
+              clockIn: prepared.preview.application.clockIn,
+              clockOut: prepared.preview.application.clockOut,
             },
             actual: {
               id: result.application.id,
@@ -2761,6 +2790,12 @@ export class FreeeBrowserClient {
         await this.selectClockTime("休憩開始時刻", application.breakStart);
         await this.selectClockTime("休憩終了時刻", application.breakEnd);
       }
+      await this.assertCommittedClockTime("出勤時刻", application.clockIn);
+      await this.assertCommittedClockTime("退勤時刻", application.clockOut);
+      if (application.breakStart && application.breakEnd) {
+        await this.assertCommittedClockTime("休憩開始時刻", application.breakStart);
+        await this.assertCommittedClockTime("休憩終了時刻", application.breakEnd);
+      }
     }
     await this.page.locator('[data-testid="申請理由"]').fill(application.reason);
     await this.captureDiagnosticScreenshot("personal-application-fields-complete");
@@ -3040,23 +3075,75 @@ export class FreeeBrowserClient {
     const [hour, minute] = time.split(":");
     for (const [suffix, value] of [["時", hour], ["分", minute]] as const) {
       const input = this.page.getByRole("combobox", { name: `${label}_${suffix}`, exact: true });
-      if (await input.count() !== 1 || !await input.isVisible() || !await input.isEnabled()) {
+      if (!value || await input.count() !== 1 || !await input.isVisible() || !await input.isEnabled()) {
         throw new CliError(
           "BROWSER_PERSONAL_APPLICATION_FORM_UNEXPECTED",
           `freee did not expose one enabled '${label}_${suffix}' control.`,
           { exitCode: 2 },
         );
       }
-      await input.fill(value!);
-      await input.press("ArrowDown");
-      await input.press("Enter");
-      if (await input.inputValue() !== value) {
+      await this.commitClockTimeOption(input, label, time, value);
+    }
+  }
+
+  private async assertCommittedClockTime(label: string, time: string): Promise<void> {
+    const [hour, minute] = time.split(":");
+    for (const [suffix, value] of [["時", hour], ["分", minute]] as const) {
+      const input = this.page.getByRole("combobox", { name: `${label}_${suffix}`, exact: true });
+      if (!value || await input.count() !== 1 || await input.inputValue() !== value) {
         throw new CliError(
           "PERSONAL_APPLICATION_TIME_UNAVAILABLE",
           `freee did not accept '${time}' for '${label}'.`,
           { details: { label, time }, exitCode: 2 },
         );
       }
+    }
+  }
+
+  private async commitClockTimeOption(
+    input: Locator,
+    label: string,
+    time: string,
+    value: string,
+  ): Promise<void> {
+    await input.click();
+    await this.page.waitForTimeout(100);
+    const popupId = await input.getAttribute("aria-controls");
+    const listbox = popupId && !popupId.includes("\0")
+      ? this.page.locator(`[id=${JSON.stringify(popupId)}]`)
+      : null;
+    let option: Locator | null = null;
+    let optionCount = 0;
+    if (listbox
+        && await listbox.count() === 1
+        && await listbox.isVisible()
+        && await listbox.getAttribute("role") === "listbox") {
+      const matches = listbox.getByRole("option", { name: value, exact: true });
+      optionCount = await matches.count();
+      if (optionCount === 1) {
+        option = matches.first();
+      }
+    }
+    if (!option) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_TIME_UNAVAILABLE",
+        `freee did not expose exactly one '${value}' option for '${label}'.`,
+        { details: { label, time, optionCount }, exitCode: 2 },
+      );
+    }
+    // The option animates, so locator.click() times out before it is stable.
+    // A DOM click commits the option; text shown in the combobox does not.
+    await option.evaluate((element) => {
+      (element as HTMLElement).click();
+    });
+    await this.page.keyboard.press("Tab");
+    await this.page.waitForTimeout(200);
+    if (await input.inputValue() !== value) {
+      throw new CliError(
+        "PERSONAL_APPLICATION_TIME_UNAVAILABLE",
+        `freee did not accept '${time}' for '${label}'.`,
+        { details: { label, time }, exitCode: 2 },
+      );
     }
   }
 

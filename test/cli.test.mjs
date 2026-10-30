@@ -6,6 +6,16 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+test("both approval CLIs accept cancel_approval and still validate the fingerprint before browser access", async () => {
+  for (const workflow of ["approvals", "monthly-approvals"]) {
+    await assert.rejects(execFileAsync(process.execPath, [
+      "dist/cli.js", workflow, "commit-action", "--id", "1234",
+      "--action", "cancel_approval", "--fingerprint", "invalid", "--confirm",
+    ], { encoding: "utf8", env: { ...process.env, FREEE_BACKEND: "playwright" } }),
+    (error) => JSON.parse(error.stderr).error.code === "INVALID_APPROVAL_FINGERPRINT");
+  }
+});
+
 test("the compiled CLI entry point is runnable without credentials for help", async () => {
   const packageJson = JSON.parse(await readFile("package.json", "utf8"));
   const result = await execFileAsync(process.execPath, ["dist/cli.js", "--help"], {

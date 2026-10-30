@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 
-import type {
-  BrowserApprovalDetail,
-  BrowserApprovalListStatus,
-  BrowserApprovalSummary,
+import {
+  parseApprovalWorkTimeChange,
+  type BrowserApprovalDetail,
+  type BrowserApprovalListStatus,
+  type BrowserApprovalSummary,
 } from "./browser-approvals.js";
 import { CliError } from "./errors.js";
 
@@ -289,9 +290,10 @@ export function isVerifiedCreatedWorkTimeDeletion(
 export function isVerifiedCreatedWorkTimeReplacement(
   application: Pick<
     NormalizedPersonalApplicationCreateInput,
-    "kind" | "date" | "workTimeAction" | "clockIn" | "clockOut"
+    "kind" | "date" | "workTimeAction" | "clockIn" | "clockOut" | "breakStart" | "breakEnd"
   >,
-  created: Pick<BrowserApprovalSummary, "type" | "targetDate" | "content">,
+  created: Pick<BrowserApprovalSummary, "type" | "targetDate">,
+  tables: BrowserApprovalDetail["tables"],
 ): boolean {
   if (application.kind !== "work-time-correction"
       || application.workTimeAction !== "replace"
@@ -299,37 +301,14 @@ export function isVerifiedCreatedWorkTimeReplacement(
       || application.clockOut === null) {
     return false;
   }
-  const stored = storedWorkTimeClockRange(created.content);
+  const stored = parseApprovalWorkTimeChange(created, tables)?.after;
   return created.type === "勤務時間修正"
     && created.targetDate === application.date.replaceAll("-", "/")
-    && stored?.clockIn === application.clockIn
-    && stored?.clockOut === application.clockOut;
-}
-
-function storedWorkTimeClockRange(
-  content: string | null,
-): { clockIn: string; clockOut: string } | null {
-  if (content === null) {
-    return null;
-  }
-  const marker = "出退勤時間";
-  const markerAt = content.indexOf(marker);
-  const sectionStart = markerAt < 0 ? 0 : markerAt + marker.length;
-  const breakAt = markerAt < 0 ? -1 : content.indexOf("休憩時間", sectionStart);
-  const section = content.slice(sectionStart, breakAt < 0 ? content.length : breakAt);
-  const tokens = [...section.matchAll(
-    /未入力|([0-9]{1,2}):([0-9]{2})\s*[〜～~\-–—]\s*([0-9]{1,2}):([0-9]{2})/g,
-  )];
-  const chosen = markerAt < 0
-    ? tokens.find((token) => token[1] !== undefined)
-    : tokens[tokens.length - 1];
-  if (!chosen?.[1] || !chosen[2] || !chosen[3] || !chosen[4]) {
-    return null;
-  }
-  return {
-    clockIn: `${chosen[1].padStart(2, "0")}:${chosen[2]}`,
-    clockOut: `${chosen[3].padStart(2, "0")}:${chosen[4]}`,
-  };
+    && stored?.clockIn?.padStart(5, "0") === application.clockIn
+    && stored?.clockOut?.padStart(5, "0") === application.clockOut
+    && (application.breakStart === null
+      || (stored?.breakStart?.padStart(5, "0") === application.breakStart
+        && stored?.breakEnd?.padStart(5, "0") === application.breakEnd));
 }
 
 export function createPersonalApplicationWithdrawFingerprint(

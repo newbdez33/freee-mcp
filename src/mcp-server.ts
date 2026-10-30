@@ -11,6 +11,7 @@ export const mcpServerInstructions = [
   "Execute scoped automation through the existing sequential single-item tools. Read authoritative state and every required page, prepare each target, evaluate the complete preview against the authorization, retain and match the fingerprint on the user's behalf, commit with confirm=true, and verify the result. No per-item user confirmation or fingerprint review is required while the item remains in scope. A known pre-click preview-changed result means no write occurred and may be reread and prepared again under the same authorization when it still matches. Never retry an unknown or post-click-indeterminate write; quarantine that target and any dependent chain while independent work may continue.",
   "A policy may cover one pass, repeated scans until no match remains, an explicit date/period/candidate range or limit, a chain of writes whose final outcome was expressly authorized, or a configured recurring invocation. It need not pre-enumerate application Nos. or fingerprints. Stop the run when authorization expires or becomes unclear, backend or identity changes, pagination or page state is untrustworthy, or another systemic failure makes continued decisions unsafe. Credential, OAuth, Keychain, browser-configuration, and other configuration writes are outside a business policy unless separately authorized.",
   "Use read tools when they match the user's request. For a 月次勤怠締め manager action, derive its work month from the application's explicit payment month and freee's displayed payment-month/work-month relationship; if either is ambiguous, stop without a review, fingerprint, or write. Never bypass this check with the general approval commit. Before approving a 休暇, scan every pending approval page for same-applicant, same-date 勤務時間修正 dependencies. For deletion of the current employee's registered work time, use a work-time-correction personal application with work_time_action=delete; this selects the exact 勤務時間を削除 option and creates an approval request rather than directly deleting a raw record. Always prepare first and pass the unchanged fingerprint. The selected API or Playwright backend is exclusive; never fall back.",
+  "cancel_approval reverses an approved application through the exact 承認を取り消す button. Require a precise instruction for that application; do not infer authorization from an approve/return business policy. Prepare and match its fingerprint, click once, and verify the same application as 差戻し. Do not perform an additional return action or retry an unknown result.",
   "Never request or expose passwords, Tokens, Client Secrets, Cookies, or browser profiles. If Playwright reports WEB_CREDENTIALS_UNAVAILABLE, show the exact setupCommand returned in the error and instruct the user to run it directly in a local interactive terminal; never accept credentials in chat or MCP arguments.",
 ].join(" ");
 
@@ -21,8 +22,8 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
 const clockActionSchema = z.enum(["in", "break-start", "break-end", "out"]);
 const approvalIdSchema = z.string().regex(/^\d+$/)
   .describe("The numeric No. shown in the freee application list.");
-const approvalActionSchema = z.enum(["approve", "return"])
-  .describe("approve maps to 承認; return maps to 申請者へ差し戻す.");
+const approvalActionSchema = z.enum(["approve", "return", "cancel_approval"])
+  .describe("approve maps to 承認; return maps to 申請者へ差し戻す; cancel_approval maps to 承認を取り消す on an approved application and must verify 差戻し. Canceling approval requires a precise instruction for this application; an approve/return policy does not authorize it.");
 const fingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/)
   .describe("The unchanged SHA-256 fingerprint returned by the matching prepare tool.");
 const authorizationConfirmSchema = z.literal(true).describe(
@@ -372,7 +373,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_monthly_approval_prepare_action", {
     title: "Preview a freee monthly attendance approval action",
-    description: "Review one exact 月次勤怠締め application and bind its explicit payment month, freee-verified work month, detail, monthly summary, daily attendance, alerts, automatic checks, and requested approval/return action into a fingerprint. For an exact instruction or active scoped business policy, the Agent evaluates the complete review and matches the fingerprint without per-item user confirmation. Ambiguous mapping produces no fingerprint; no application is changed.",
+    description: "Review one exact 月次勤怠締め application and bind its explicit payment month, freee-verified work month, detail, monthly summary, daily attendance, alerts, automatic checks, and requested approve, return, or cancel_approval action into a fingerprint. For an exact instruction or active scoped business policy, the Agent evaluates the complete review and matches the fingerprint without per-item user confirmation. Ambiguous mapping produces no fingerprint; no application is changed.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,
@@ -384,7 +385,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_monthly_approval_commit_action", {
     title: "Commit a freee monthly attendance approval action",
-    description: "Approve or return one real 月次勤怠締め application after authorization for the exact action or an active scoped business policy. The Agent may use this single-item tool sequentially without per-item confirmation, but every call recomputes the payment-month/work-month mapping and matches the complete monthly review and fingerprint. Ambiguous or changed mapping stops before any click; never retry an unknown write.",
+    description: "Approve, return, or cancel approval of one real 月次勤怠締め application after authorization for the exact action or an active scoped business policy. The Agent may use this single-item tool sequentially without per-item confirmation, but every call recomputes the payment-month/work-month mapping and matches the complete monthly review and fingerprint. Ambiguous or changed mapping stops before any click; never retry an unknown write.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,
@@ -410,7 +411,7 @@ export function createFreeeMcpServer(service: FreeeOperations): McpServer {
 
   server.registerTool("freee_approval_prepare_action", {
     title: "Preview a freee application action",
-    description: "Read and preview one available approval or return action, including any structured 勤務時間修正 before/after comparison, and return a binding fingerprint. For an exact instruction or active scoped business policy, the Agent evaluates the complete detail and matches the fingerprint without per-item user confirmation. Before approving a 休暇 application, every pending approval-list page is checked for same-applicant, same-date 勤務時間修正 applications; a blocker or an unreliable applicant/date stops this item without a fingerprint. No application is changed.",
+    description: "Read and preview one available approve, return, or cancel_approval action, including any structured 勤務時間修正 before/after comparison, and return a binding fingerprint. For an exact instruction or active scoped business policy, the Agent evaluates the complete detail and matches the fingerprint without per-item user confirmation. Before approving a 休暇 application, every pending approval-list page is checked for same-applicant, same-date 勤務時間修正 applications; a blocker or an unreliable applicant/date stops this item without a fingerprint. No application is changed.",
     inputSchema: {
       id: approvalIdSchema,
       action: approvalActionSchema,

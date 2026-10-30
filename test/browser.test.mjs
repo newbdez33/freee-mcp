@@ -117,6 +117,86 @@ function approvalDetail(applicationOverrides = {}, detailOverrides = {}) {
   };
 }
 
+test("approval detail exposes cancel_approval only for an approved application", async () => {
+  const { client } = createFakeBrowser([]);
+  client.readStableApprovalDetailSnapshot = async () => ({ fields: [], tables: [], detailLines: [] });
+  client.page.getByRole = (_role, { name }) => ({
+    async count() { return name === "承認を取り消す" ? 1 : 0; },
+    async isVisible() { return true; },
+    async isEnabled() { return true; },
+  });
+  for (const status of ["承認済", "未承認", "差戻し"]) {
+    const detail = await client.readApprovalDetail(approvalSummary({ status }));
+    assert.deepEqual(detail.availableActions, status === "承認済" ? ["cancel_approval"] : []);
+  }
+});
+
+test("cancel_approval clicks once and verifies the returned state for general and monthly workflows", async () => {
+  for (const monthly of [false, true]) {
+    for (const afterStatus of ["差戻し", "未承認", "承認済"]) {
+      const { client } = createFakeBrowser([]);
+      const before = approvalDetail({
+        status: "承認済", type: monthly ? "月次勤怠締め" : "勤務時間修正",
+        targetDate: monthly ? "2026/09/01" : "2026/08/20",
+        content: monthly ? "2026年09月の支払分" : "09:00〜18:00",
+      }, { availableActions: ["cancel_approval"] });
+      let clicks = 0;
+      client.readAllPendingApprovals = async () => { throw new Error("Cancellation must not run leave approval checks"); };
+      client.getApprovalDetail = async () => clicks
+        ? { ...before, application: { ...before.application, status: afterStatus }, availableActions: [] }
+        : before;
+      client.getMonthlyApprovalReview = async () => ({
+        application: before, paymentPeriod: "2026-09", period: "2026-08",
+        attendanceSummary: {}, attendance: {}, automaticChecks: [],
+      });
+      client.page.getByRole = (_role, { name, exact }) => {
+        assert.equal(name, "承認を取り消す");
+        assert.equal(exact, true);
+        return {
+          async count() { return 1; }, async isVisible() { return true; }, async isEnabled() { return true; },
+          async click() { clicks += 1; },
+        };
+      };
+      const prepare = monthly ? "prepareMonthlyApprovalAction" : "prepareApprovalAction";
+      const commit = monthly ? "commitMonthlyApprovalAction" : "commitApprovalAction";
+      const prepared = await client[prepare]("7200", "cancel_approval");
+      await assert.rejects(client[commit]("7200", "cancel_approval", prepared.fingerprint, false),
+        (error) => error.code === "CONFIRMATION_REQUIRED");
+      await assert.rejects(client[commit]("7200", "cancel_approval", "0".repeat(64), true),
+        (error) => error.code.endsWith("PREVIEW_CHANGED"));
+      assert.equal(clicks, 0);
+      const result = client[commit]("7200", "cancel_approval", prepared.fingerprint, true);
+      if (afterStatus === "差戻し") {
+        assert.equal((await result).verified, true);
+      } else {
+        await assert.rejects(result, (error) => error.code === "APPROVAL_ACTION_RESULT_UNKNOWN");
+      }
+      assert.equal(clicks, 1);
+    }
+  }
+});
+
+test("cancel_approval reports unknown after an unreadable or different post-click application", async () => {
+  for (const unreadable of [true, false]) {
+    const { client } = createFakeBrowser([]);
+    const before = approvalDetail({ status: "承認済" }, { availableActions: ["cancel_approval"] });
+    let clicks = 0;
+    client.getApprovalDetail = async () => {
+      if (!clicks) return before;
+      if (unreadable) throw new CliError("BROWSER_APPROVAL_DETAIL_UNEXPECTED", "Synthetic detail error");
+      return { ...before, application: { ...before.application, id: "7201", status: "差戻し" }, availableActions: [] };
+    };
+    client.page.getByRole = () => ({
+      async count() { return 1; }, async isVisible() { return true; }, async isEnabled() { return true; },
+      async click() { clicks += 1; },
+    });
+    await assert.rejects(client.commitApprovalAction(
+      "7200", "cancel_approval", createApprovalFingerprint(before, "cancel_approval"), true,
+    ), (error) => error.code === "APPROVAL_ACTION_RESULT_UNKNOWN");
+    assert.equal(clicks, 1);
+  }
+});
+
 function installPendingApprovalPages(client, pages) {
   const pageReads = [];
   const totalCount = pages.reduce((count, page) => count + page.length, 0);
@@ -1778,19 +1858,6 @@ test("Playwright personal application route fails closed when multiple options e
   assert.deepEqual(state.clicks, []);
 });
 
-test("Playwright work-time clock selection clicks the exact option instead of ArrowDown and Enter", () => {
-  for (const method of ["selectClockTime", "commitClockTimeOption", "assertCommittedClockTime"]) {
-    const source = FreeeBrowserClient.prototype[method].toString();
-    assert.equal(source.includes("ArrowDown"), false, method);
-    assert.equal(source.includes("\"Enter\""), false, method);
-    assert.equal(source.includes(".fill("), false, method);
-  }
-  const commit = FreeeBrowserClient.prototype.commitClockTimeOption.toString();
-  assert.equal(commit.includes("aria-controls"), true);
-  assert.match(commit, /\.click\(\)/);
-  assert.match(commit, /press\("Tab"\)/);
-});
-
 test("Playwright work-time correction commits each requested clock option", async () => {
   const { client } = createFakeBrowser([]);
   const form = installWorkTimeClockForm(client);
@@ -1810,7 +1877,7 @@ test("Playwright work-time correction commits each requested clock option", asyn
   ]);
   assert.deepEqual(form.presses, Array(8).fill("Tab"));
   assert.deepEqual(form.fills, []);
-  assert.deepEqual(form.waits, Array(8).fill(null).flatMap(() => [100, 200]));
+  assert.deepEqual(form.waits, []);
   assert.deepEqual(form.trace.slice(0, 4), [
     "open:出勤時刻_時",
     "choose:出勤時刻_時:10",
@@ -1919,6 +1986,7 @@ function installWorkTimeClockForm(client, {
   client.page.waitForTimeout = async (ms) => {
     form.waits.push(ms);
   };
+  client.page.waitForFunction = async () => {};
   client.page.keyboard = {
     async press(key) {
       form.presses.push(key);
@@ -1945,6 +2013,7 @@ function installWorkTimeClockForm(client, {
         assert.equal(attribute, "aria-controls");
         return `clock-${name}`;
       },
+      async elementHandle() { return { async dispose() {} }; },
       async fill(value) { form.fills.push([name, value]); },
       async press(key) { form.presses.push(key); },
       async inputValue() {
@@ -1967,6 +2036,7 @@ function installWorkTimeClockForm(client, {
     const name = match[1];
     return {
       async count() { return 1; },
+      async waitFor() {},
       async isVisible() { return true; },
       async getAttribute(attribute) {
         return attribute === "role" ? "listbox" : null;
@@ -1980,6 +2050,8 @@ function installWorkTimeClockForm(client, {
           async count() { return count; },
           first() {
             return {
+              async waitFor() {},
+              async isEnabled() { return true; },
               async evaluate(apply) {
                 form.optionClicks.push([name, options.name]);
                 form.trace.push(`choose:${name}:${options.name}`);
@@ -2151,40 +2223,33 @@ test("Playwright work-time deletion commit verifies the exact new deletion reque
   assert.equal(result.result.application.content, "勤務時間を削除");
 });
 
-test("Playwright work-time replacement commit verifies stored clock-in and clock-out", async () => {
+test("Playwright work-time replacement commit verifies stored clock and break times", async () => {
   const requested = workTimeReplacementInput();
-  const matching = await commitWorkTimeReplacement(requested, "10:00 ～ 20:00（10時間0分）");
-  const matched = await matching.client.commitPersonalApplicationCreate(
-    requested,
-    matching.fingerprint,
-    true,
-  );
+  const content = "出退勤時間 10:00〜20:00 休憩 12:00〜13:00 遅刻 0分 早退 0分";
+  const matching = commitWorkTimeReplacement(requested, content, "10:00 ～ 20:00（10時間0分）");
+  const matched = await matching.client.commitPersonalApplicationCreate(requested, matching.fingerprint, true);
   assert.equal(matching.clicks, 1);
   assert.equal(matched.verified, true);
-  assert.equal(matched.result.application.content, "10:00 ～ 20:00（10時間0分）");
+  assert.equal(matched.result.workTimeChange.after.clockIn, "10:00");
+  assert.equal(matched.result.workTimeChange.after.breakStart, "12:00");
 
-  const storedDefaults = await commitWorkTimeReplacement(
-    requested,
-    "09:00〜18:00 12:00〜13:00",
-  );
-  await assert.rejects(
-    storedDefaults.client.commitPersonalApplicationCreate(
-      requested,
-      storedDefaults.fingerprint,
-      true,
-    ),
-    (error) => error.code === "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN"
-      && error.details.expected.clockIn === "10:00"
-      && error.details.expected.clockOut === "20:00"
-      && error.details.actual.content === "09:00〜18:00 12:00〜13:00",
-  );
-  assert.equal(storedDefaults.clicks, 1);
+  for (const [clock, pause] of [["09:00〜18:00", "12:00〜13:00"], ["10:00〜20:00", "12:15〜13:15"]]) {
+    const mismatch = commitWorkTimeReplacement(requested, content, clock, pause);
+    await assert.rejects(
+      mismatch.client.commitPersonalApplicationCreate(requested, mismatch.fingerprint, true),
+      (error) => error.code === "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN"
+        && error.details.expected.clockIn === "10:00"
+        && error.details.expected.breakStart === "12:00",
+    );
+    assert.equal(mismatch.clicks, 1);
+  }
 });
 
-function commitWorkTimeReplacement(application, content) {
+function commitWorkTimeReplacement(application, content, storedClock = content, storedBreak = "12:00〜13:00") {
   const { client } = createFakeBrowser([]);
   const fingerprint = "7".repeat(64);
   const state = { clicks: 0 };
+  client.assertWorkTimeCorrectionTimes = async () => {};
   client.preparePersonalApplicationCreate = async () => {
     client.preparedPersonalApplicationFirstPageIds = ["30"];
     return {
@@ -2211,7 +2276,7 @@ function commitWorkTimeReplacement(application, content) {
   client.readCurrentPersonalApplicationDetailSnapshot = async () => ({
     applicationId: "31",
     fields: [{ label: "申請内容", value: content }],
-    tables: [],
+    tables: [{ headers: ["項目名", "内容"], rows: [["勤務時間", `出退勤時間 未入力${storedClock} 休憩時間 未入力${storedBreak}`]] }],
     detailLines: [content],
     workTimeChange: null,
     availableActions: ["withdraw"],

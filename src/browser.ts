@@ -6,6 +6,7 @@ import { chromium, type BrowserContext, type Locator, type Page, type Response }
 
 import { clockActionMap, type ClockAction } from "./attendance.js";
 import {
+  approvalActionLabels,
   createApprovalFingerprint,
   findBlockingPendingWorkTimeCorrections,
   getApprovalRowOffset,
@@ -961,6 +962,8 @@ export class FreeeBrowserClient {
     }
     if (prepared.preview.application.workTimeAction === "delete") {
       await this.assertWorkTimeDeletionOptionSelected();
+    } else {
+      await this.assertWorkTimeCorrectionTimes(prepared.preview.application);
     }
     await this.captureDiagnosticScreenshot("personal-application-before-submit");
     try {
@@ -988,7 +991,11 @@ export class FreeeBrowserClient {
           `expected detail ${applicationId} to be the one new application, found ${created.length}`,
         );
       }
-      result = { application: created[0]!, ...currentDetail };
+      result = {
+        application: created[0]!,
+        ...currentDetail,
+        workTimeChange: parseApprovalWorkTimeChange(created[0]!, currentDetail.tables),
+      };
     } catch {
       throw new CliError(
         "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
@@ -1032,10 +1039,11 @@ export class FreeeBrowserClient {
         && !isVerifiedCreatedWorkTimeReplacement(
           prepared.preview.application,
           result.application,
+          result.tables,
         )) {
       throw new CliError(
         "PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN",
-        "freee did not store the requested clock-in and clock-out on the new 勤務時間修正 application. Do not retry; inspect the application before any further write.",
+        "freee did not verify the requested clock and break times in the new 勤務時間修正 detail. Do not retry; inspect the application before any further write.",
         {
           details: {
             action: "create",
@@ -1044,12 +1052,15 @@ export class FreeeBrowserClient {
               targetDate: prepared.preview.application.date.replaceAll("-", "/"),
               clockIn: prepared.preview.application.clockIn,
               clockOut: prepared.preview.application.clockOut,
+              breakStart: prepared.preview.application.breakStart,
+              breakEnd: prepared.preview.application.breakEnd,
             },
             actual: {
               id: result.application.id,
               type: result.application.type,
               targetDate: result.application.targetDate,
               content: result.application.content,
+              workTimeChange: result.workTimeChange,
             },
           },
           exitCode: 2,
@@ -1759,7 +1770,14 @@ export class FreeeBrowserClient {
     verified: true;
     result: BrowserApprovalDetail;
   }> {
-    const label = action === "approve" ? "承認" : "申請者へ差し戻す";
+    if (action === "cancel_approval" && before.application.status !== "承認済") {
+      throw new CliError(
+        "APPROVAL_ACTION_UNAVAILABLE",
+        "Only an approved application can use 承認を取り消す. No action was taken.",
+        { details: { id, action, status: before.application.status }, exitCode: 2 },
+      );
+    }
+    const label = approvalActionLabels[action];
     const button = this.page.getByRole("button", { name: label, exact: true });
     if (await button.count() !== 1 || !await button.isVisible() || !await button.isEnabled()) {
       throw new CliError(
@@ -1785,7 +1803,11 @@ export class FreeeBrowserClient {
       result = await this.getApprovalDetail(id);
     } catch (error) {
       if (!(error instanceof CliError && error.code === "APPROVAL_NOT_FOUND")) {
-        throw error;
+        throw new CliError(
+          "APPROVAL_ACTION_RESULT_UNKNOWN",
+          "freee did not expose a reliable application detail after the click. Do not retry; inspect the application before any further write.",
+          { details: { id, action }, exitCode: 2 },
+        );
       }
       let personalResult: BrowserPersonalApplicationDetail;
       try {
@@ -1813,7 +1835,8 @@ export class FreeeBrowserClient {
         availableActions: [],
       };
     }
-    if (result.availableActions.includes(action)
+    if ((action === "cancel_approval" && !isSameApprovalTarget(before.application, result.application))
+        || result.availableActions.includes(action)
         || (originalFingerprint !== undefined
           && createApprovalFingerprint(result, action) === originalFingerprint)) {
       throw new CliError(
@@ -2790,16 +2813,12 @@ export class FreeeBrowserClient {
         await this.selectClockTime("休憩開始時刻", application.breakStart);
         await this.selectClockTime("休憩終了時刻", application.breakEnd);
       }
-      await this.assertCommittedClockTime("出勤時刻", application.clockIn);
-      await this.assertCommittedClockTime("退勤時刻", application.clockOut);
-      if (application.breakStart && application.breakEnd) {
-        await this.assertCommittedClockTime("休憩開始時刻", application.breakStart);
-        await this.assertCommittedClockTime("休憩終了時刻", application.breakEnd);
-      }
     }
     await this.page.locator('[data-testid="申請理由"]').fill(application.reason);
     await this.captureDiagnosticScreenshot("personal-application-fields-complete");
-    return this.readPersonalApplicationRoute();
+    const route = await this.readPersonalApplicationRoute();
+    await this.assertWorkTimeCorrectionTimes(application);
+    return route;
   }
 
   private async selectWorkTimeDeletionOption(): Promise<void> {
@@ -3100,6 +3119,18 @@ export class FreeeBrowserClient {
     }
   }
 
+  private async assertWorkTimeCorrectionTimes(application: NormalizedPersonalApplicationCreateInput): Promise<void> {
+    if (application.workTimeAction !== "replace") {
+      return;
+    }
+    await this.assertCommittedClockTime("出勤時刻", application.clockIn!);
+    await this.assertCommittedClockTime("退勤時刻", application.clockOut!);
+    if (application.breakStart && application.breakEnd) {
+      await this.assertCommittedClockTime("休憩開始時刻", application.breakStart);
+      await this.assertCommittedClockTime("休憩終了時刻", application.breakEnd);
+    }
+  }
+
   private async commitClockTimeOption(
     input: Locator,
     label: string,
@@ -3107,20 +3138,25 @@ export class FreeeBrowserClient {
     value: string,
   ): Promise<void> {
     await input.click();
-    await this.page.waitForTimeout(100);
     const popupId = await input.getAttribute("aria-controls");
     const listbox = popupId && !popupId.includes("\0")
       ? this.page.locator(`[id=${JSON.stringify(popupId)}]`)
       : null;
     let option: Locator | null = null;
     let optionCount = 0;
+    if (listbox) {
+      await listbox.waitFor({ state: "visible", timeout: this.config.interactionTimeoutMs })
+        .catch(() => undefined);
+    }
     if (listbox
         && await listbox.count() === 1
         && await listbox.isVisible()
         && await listbox.getAttribute("role") === "listbox") {
       const matches = listbox.getByRole("option", { name: value, exact: true });
+      await matches.first().waitFor({ state: "visible", timeout: this.config.interactionTimeoutMs })
+        .catch(() => undefined);
       optionCount = await matches.count();
-      if (optionCount === 1) {
+      if (optionCount === 1 && await matches.first().isEnabled()) {
         option = matches.first();
       }
     }
@@ -3137,7 +3173,18 @@ export class FreeeBrowserClient {
       (element as HTMLElement).click();
     });
     await this.page.keyboard.press("Tab");
-    await this.page.waitForTimeout(200);
+    const control = await input.elementHandle();
+    try {
+      await this.page.waitForFunction(
+        ({ control, value }) => control?.isConnected && (control as HTMLInputElement).value === value,
+        { control, value },
+        { timeout: this.config.interactionTimeoutMs },
+      );
+    } catch {
+      // The read below reports the requested field without exposing browser diagnostics.
+    } finally {
+      await control?.dispose();
+    }
     if (await input.inputValue() !== value) {
       throw new CliError(
         "PERSONAL_APPLICATION_TIME_UNAVAILABLE",
@@ -4048,10 +4095,11 @@ export class FreeeBrowserClient {
   private async readApprovalDetail(summary: BrowserApprovalSummary): Promise<BrowserApprovalDetail> {
     const snapshot = await this.readStableApprovalDetailSnapshot();
     const availableActions: BrowserApprovalAction[] = [];
-    for (const [action, label] of [
-      ["approve", "承認"],
-      ["return", "申請者へ差し戻す"],
-    ] as const) {
+    for (const action of Object.keys(approvalActionLabels) as BrowserApprovalAction[]) {
+      if (action === "cancel_approval" && summary.status !== "承認済") {
+        continue;
+      }
+      const label = approvalActionLabels[action];
       const button = this.page.getByRole("button", { name: label, exact: true });
       if (await button.count() > 1) {
         throw new CliError(

@@ -51,7 +51,7 @@ claude plugin update freee@freee-tools --scope user
 Codex 使用 Skill installer 安装 `skills/freee`，并在用户级注册下面这个固定版本、可移植的 STDIO 命令：
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.5.0' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.6.0' freee-mcp
 ```
 
 开头的安装提示会让 Codex 完成这两个步骤。如果新 Skill 没有立即被发现，请重启 Codex，然后通过 `/mcp` 验证 Server 连接。
@@ -61,7 +61,7 @@ codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.5.0' f
 通过客户端设置或 MCP 安装器，把下面命令注册为用户级 STDIO MCP：
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.5.0' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.6.0' freee-mcp
 ```
 
 将本仓库的 `skills/freee` 安装到客户端的全局 Agent Skills 目录。OpenCode 识别 `~/.agents/skills/freee`；其他兼容 Agent Skills 的客户端可能使用不同的用户级目录。开头的安装提示会让当前 Agent 选择正确位置，不会创建项目文件。
@@ -137,6 +137,8 @@ Pi 的等效手动更新命令是 `pi update`。可移植 MCP 安装会刻意固
 ```bash
 npm ci
 npm test
+npx playwright install chromium
+npm run test:browser
 npm run validate
 npm run package:smoke
 ```
@@ -267,15 +269,15 @@ npm run freee -- requests commit-withdraw --id APPLICATION_NO \
   --fingerprint PREVIEW_SHA256 --confirm
 
 # 员工申请：逐项 prepare；使用单条确认或已启用策略
-npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return
+npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return|cancel_approval
 npm run freee -- approvals commit-action --id APPLICATION_NO \
-  --action approve|return --fingerprint PREVIEW_SHA256 --confirm
+  --action approve|return|cancel_approval --fingerprint PREVIEW_SHA256 --confirm
 
 # 月次审批：逐项完整审阅；使用单项确认或有效策略
 npm run freee -- monthly-approvals prepare-action \
-  --id APPLICATION_NO --action approve|return
+  --id APPLICATION_NO --action approve|return|cancel_approval
 npm run freee -- monthly-approvals commit-action \
-  --id APPLICATION_NO --action approve|return \
+  --id APPLICATION_NO --action approve|return|cancel_approval \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
@@ -303,6 +305,8 @@ Playwright 后端支持 System Keychain 凭据、持久登录、本人打卡状�
 
 创建、取消已批准申请、撤回待处理申请使用各自独立的 prepare/commit。删除预览会绑定准确日期、`workTimeAction: "delete"`、理由、审批路径和已选中的「勤務時間を削除」选项；commit 会重建预览，在点击前再次确认该准确选项仍被选中，并且只接受同日、内容精确为「勤務時間を削除」的唯一新 `勤務時間修正` 申请。已授权的日期集合按单日完整流程顺序处理，不逐日询问。取消 preview 会绑定原批准申请、取消理由、官方表单、审批路径和最近申请；只有授权的最终结果明确包含后续批准时，才可继续处理新取消申请。每次 commit 都把相同预览与精确指令或有效策略比较，只点击一次并验证结果。结果未知时绝不自动重试。
 
+替换工时会逐一确认小时和分钟选项，并在失焦、选择审批路径后及提交前重新读取字段。提交后使用同日期新申请详情中的 `workTimeChange.after` 核对出退勤和明确指定的休息时间，不以列表摘要作为保存成功的依据。详情缺失或时间不符时返回 `PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN`，不得自动重试。
+
 ## 员工申请处理
 
 `approvals list` 明确选择管理员侧 `承認` 标签，默认读取 `未承認` 队列，绝不会把默认员工侧 `申請` 当作审批队列。每条结果包含申请人。`--status returned|approved|all` 读取其他管理员状态，`--page N` 选择单页。结果返回 `page`、`pageCount`、`totalCount` 和当前页 `applicationCount`，Agent 无需一次输出无限历史。浏览器等待准确 freee 响应及匹配的渲染行数，避免把旧筛选器 DOM 返回给新筛选器。`approvals detail --id` 搜索完整分页管理员流程，并返回申请字段、审批路径、部门、评论和 freee 自动检查结果。对于受支持的 `勤務時間修正`，`workTimeChange` 会结构化返回上班、下班、休息开始和休息结束的 `before`/`after` 值；`null` 表示 freee 显示 `未入力`。承认预览及其安全指纹也会包含这组对照。这两个命令均为只读。
@@ -316,13 +320,15 @@ Playwright 后端支持 System Keychain 凭据、持久登录、本人打卡状�
 
 commit 前 CLI 会重新读取详情。指纹不一致、按钮缺失、申请已被他人处理或出现新评论时都会停止，并要求重新预览。点击后会通过同步分页流程重新读取同一申请，最终状态必须准确为 `承認済` 或 `差戻し`。本人申请在差戻し后如果离开管理员历史，可以改用员工历史中相同 No. 和不可变对象字段进行验证。两个工作流都找不到或对象不匹配时报告未知，绝不能自动重试。开发测试不会执行真实批准或差戻し。
 
+`cancel_approval` 是独立的管理员操作，仅用于已批准且显示精确按钮 `承認を取り消す` 的申请。需要针对该申请的明确指令，普通批准或退回策略不包含此权限。沿用 prepare、指纹和 confirm 流程；`月次勤怠締め` 使用月次专用工具。点击一次后必须验证同一申请为 `差戻し`，不需要再次退回。其他状态或未预期的确认流程均视为结果未知，不得重试。此操作不同于员工端的 `requests ...-cancel`，后者会创建新的取消申请。
+
 ## 月次考勤审批审阅
 
 `monthly-approvals list` 从一页同步的管理员审批结果中筛选 `月次勤怠締め`。它从 `2026年09月の支払分` 等文本解析唯一明确的支付月，根据 freee 页面显示的支付月/工作月关系推导工作月，并通过官方月份导航验证该组合，返回 `paymentPeriod` 和工作月 `period`。它不会把支付月或 `対象日` 当成工作月，也不会硬编码减一个月。如需查看后续来源页，请使用 `pageCount`；`sourceTotalCount` 是类型筛选前总数，`applicationCount` 是当前页月次申请数量。
 
 `monthly-approvals review --id` 先确认准确申请类型，以及与 `対象日` 一致的唯一明确支付月。它根据 freee 页面显示的对应关系映射工作月，将考勤监控页导航到该工作月，将申请人唯一映射为一名可见成员，打开其官方考勤页，并在读取逐日表格前再次验证同一支付月/工作月组合。对应关系缺失或有歧义时返回 `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`；月份不一致、员工身份重复、缺少官方考勤链接或表格结构变化时也会安全停止，不返回不完整审阅。成功结果包含两个期间、月度汇总、唯一识别的逐日表、每日警告、页面警告、申请详情和统一自动检查。
 
-每次月次管理员写操作前都使用 `monthly-approvals prepare-action --id NO --action approve|return`。其指纹绑定明确支付月、freee 验证的工作月、完整申请、月度汇总、逐日记录、警告、检查和请求操作。完整预览匹配精确指令或有效范围策略时，可以调用 `monthly-approvals commit-action ... --confirm`。因此 Agent 可在一次授权运行中按条件逐条批准或差戻し，无需每项提示。每次 commit 仍重新推导映射、重建审阅并重新打开准确申请；任一月份或绑定数据变化都会在点击前停止。点击一次后执行与一般审批相同的写后验证。这条专用单条写入路径仍待真实 freee 验收（`LV-W10`）。
+每次月次管理员写操作前都使用 `monthly-approvals prepare-action --id NO --action approve|return|cancel_approval`。其指纹绑定明确支付月、freee 验证的工作月、完整申请、月度汇总、逐日记录、警告、检查和请求操作。完整预览匹配精确指令或有效范围策略时，可以调用 `monthly-approvals commit-action ... --confirm`。因此 Agent 可在一次授权运行中按条件逐条批准或差戻し，无需每项提示。每次 commit 仍重新推导映射、重建审阅并重新打开准确申请；任一月份或绑定数据变化都会在点击前停止。点击一次后执行与一般审批相同的写后验证。这条专用单条写入路径仍待真实 freee 验收（`LV-W10`）。
 
 ## 后端选择
 

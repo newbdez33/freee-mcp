@@ -6,6 +6,7 @@ import {
   createPersonalApplicationCreateFingerprint,
   createPersonalApplicationWithdrawFingerprint,
   isVerifiedCreatedWorkTimeDeletion,
+  isVerifiedCreatedWorkTimeReplacement,
   normalizePersonalApplicationCreateInput,
   normalizePersonalApplicationReason,
 } from "../dist/browser-personal-applications.js";
@@ -152,6 +153,38 @@ test("work-time deletion is explicit, forbids replacement times, and binds verif
     targetDate: "2026/08/17",
     content: "勤務時間を修正",
   }), false);
+});
+
+test("work-time replacement verification uses stored detail times, including requested breaks", () => {
+  const requested = normalizePersonalApplicationCreateInput({
+    kind: "work-time-correction", date: "2026-10-30",
+    clockIn: "10:00", clockOut: "19:00", breakStart: "12:15", breakEnd: "13:15",
+  });
+  const created = {
+    type: "勤務時間修正", targetDate: "2026/10/30",
+    content: "出退勤時間 10:00〜19:00 休憩 12:15〜13:15 遅刻 0分 早退 0分",
+  };
+  const tables = (clock = "10:00〜19:00", pause = "12:15〜13:15") => [{
+    headers: ["項目名", "内容"],
+    rows: [["勤務時間", `出退勤時間 未入力${clock} 休憩時間 未入力${pause}`]],
+  }];
+  assert.equal(isVerifiedCreatedWorkTimeReplacement(requested, created, tables()), true);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement(requested, created, tables("09:00〜18:00")), false);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement(requested, created, tables("10:00〜19:00", "12:00〜13:00")), false);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement(requested, created, tables("未入力")), false);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement(requested, created, []), false);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement(requested, created, [...tables(), ...tables()]), false);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement(requested, { ...created, targetDate: "2026/10/31" }, tables()), false);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement(requested, { ...created, type: "休暇" }, tables()), false);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement(requested, created, [{
+    headers: [], rows: [["勤務時間", "休憩時間 10:00〜19:00"]],
+  }]), false);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement({
+    ...requested, clockIn: "09:00", breakStart: null, breakEnd: null,
+  }, created, tables("9:00〜19:00")), true);
+  assert.equal(isVerifiedCreatedWorkTimeReplacement({
+    ...requested, workTimeAction: "delete", clockIn: null, clockOut: null,
+  }, created, tables()), false);
 });
 
 test("create fingerprints distinguish replacement from deletion", () => {

@@ -3,7 +3,12 @@ import { createHash } from "node:crypto";
 import { CliError } from "./errors.js";
 
 export type BrowserApprovalListStatus = "pending" | "returned" | "approved" | "all";
-export type BrowserApprovalAction = "approve" | "return";
+export const approvalActionLabels = {
+  approve: "承認",
+  return: "申請者へ差し戻す",
+  cancel_approval: "承認を取り消す",
+} as const;
+export type BrowserApprovalAction = keyof typeof approvalActionLabels;
 
 export interface BrowserApprovalSummary {
   id: string;
@@ -179,10 +184,10 @@ export function parseApprovalWorkTimeChange(
   if (application.type !== "勤務時間修正") {
     return null;
   }
-  const workTimeRow = tables
+  const workTimeRows = tables
     .flatMap((table) => table.rows)
-    .find((row) => normalize(row[0]) === "勤務時間");
-  const content = workTimeRow?.slice(1).join(" ").trim();
+    .filter((row) => normalize(row[0]) === "勤務時間");
+  const content = workTimeRows.length === 1 ? workTimeRows[0]!.slice(1).join(" ").trim() : null;
   if (!content) {
     return null;
   }

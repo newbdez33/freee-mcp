@@ -47,12 +47,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Chromium for local fixture tests
+        run: npx playwright install --with-deps chromium
+
       - name: Validate release version and distribution
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           node scripts/validate-distribution.mjs --release-version "$RELEASE_VERSION"
           npm test
+          npm run test:browser
           npm run package:smoke
 
       - name: Build release artifact and checksum

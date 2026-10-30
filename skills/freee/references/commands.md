@@ -213,7 +213,7 @@ npm run freee -- requests commit-create \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-Deletion commit prepares the same form again, checks immediately before the click that `勤務時間を削除` is still selected, and then verifies exactly one new same-date `勤務時間修正` application whose content is exactly `勤務時間を削除`. The registered work time changes only through freee's approval workflow. A mismatched or incomplete result is unknown and must never be retried automatically.
+Deletion commit prepares the same form again, checks immediately before the click that `勤務時間を削除` is still selected, and then verifies exactly one new same-date `勤務時間修正` application whose content is exactly `勤務時間を削除`. Replacement commit verifies the new same-date application's detail through `workTimeChange.after`: clock-in, clock-out, and any explicitly requested break times must match. Missing or ambiguous detail is unknown; list summaries and break text do not prove stored clock times. The registered work time changes only through freee's approval workflow. A mismatched or incomplete result is unknown and must never be retried automatically.
 
 Prepare and commit cancellation of an approved application separately:
 
@@ -235,9 +235,11 @@ npm run freee -- requests commit-withdraw \
   --id APPLICATION_NO --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-Withdrawal reopens and fingerprints the exact detail, clicks `申請を取り下げる` once, and must verify the same application as `差戻し`. Creation must identify exactly one new `申請中`, `未承認`, or `承認済` application. A changed preview stops before the click, and an unknown result is never retried automatically.
+Withdrawal reopens and fingerprints the exact detail, clicks `申請を取り下げる` once, and must verify the same application as `差戻し`. Creation must identify exactly one new `申請中`, `未承認`, or `承認済` application. A work-time replacement requires matching clock times and any explicitly requested break times in the application's unambiguous detail. A changed preview stops before the click, and an unknown result is never retried automatically.
 
 `approvals list` explicitly selects the current account's manager-side `承認` tab and defaults to its pending (`未承認`) queue. It never treats the default employee-side `申請` tab as an approval queue. The optional positive `page` defaults to 1. Read `pageCount` and request later pages only when needed; `totalCount` is the complete filter count, while `applicationCount` and `applications` describe the returned page. Each item includes the freee application No., applicant, status, type, target date, content, reason, application date, current approver, and automatic-check summary. The browser binds each read to the matching freee response and rendered row count instead of relying on a fixed delay. `approvals detail` searches all pages for exactly one numeric No. and returns its full visible fields, approval route, department, comment history, automatic-check messages, and currently available actions. For a supported `勤務時間修正`, it also returns `workTimeChange.before` and `workTimeChange.after` with `clockIn`, `clockOut`, `breakStart`, and `breakEnd`; a null time means freee displayed `未入力`. If freee's detail no longer exposes one unambiguous pair, `workTimeChange` is null rather than inferred from the flattened list content. These commands are Playwright-only and never fall back to API.
+
+`cancel_approval` is a separate manager action for an approved application that exposes the exact `承認を取り消す` button. It requires a precise instruction for that application; an approve/return policy does not authorize it. Use the same prepare, fingerprint, and confirm flow, with the dedicated monthly tools for `月次勤怠締め`. One click must produce `差戻し` on the same application; no additional return step is needed. Any other state or unexpected confirmation flow is unknown and must not be retried. This is separate from the employee-side `requests ...-cancel` workflow, which creates a cancellation application.
 
 ## Manager monthly attendance review and actions
 
@@ -248,7 +250,7 @@ npm run freee -- monthly-approvals list \
   [--status pending|returned|approved|all] [--page PAGE]
 npm run freee -- monthly-approvals review --id APPLICATION_NO
 npm run freee -- monthly-approvals prepare-action \
-  --id APPLICATION_NO --action approve|return
+  --id APPLICATION_NO --action approve|return|cancel_approval
 ```
 
 The list filters each synchronized source approval page to monthly closing applications. For every result, it parses one explicit payment month from application text such as `2026年09月の支払分`, reads freee's displayed payment-month/work-month relationship, verifies the resulting pair through the official navigator, and returns `paymentPeriod` plus work `period`. It never treats `対象日` or the payment month as the work month and never hardcodes a one-month subtraction. Follow `pageCount` when more source pages exist; `sourceTotalCount` is the unfiltered source count, and `applicationCount` is the monthly count on that page.
@@ -259,11 +261,11 @@ The prepare fingerprint binds the entire review and requested action. An exact i
 
 ```bash
 npm run freee -- monthly-approvals commit-action \
-  --id APPLICATION_NO --action approve|return \
+  --id APPLICATION_NO --action approve|return|cancel_approval \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
-Commit reconstructs the complete review, including the same explicit payment month and freee-verified work month, reopens the exact application, requires unchanged detail and action availability, clicks one `承認` or `申請者へ差し戻す` button, and verifies `承認済` or `差戻し`. A changed or ambiguous mapping stops before the click. Never use the general approval commit to bypass a monthly review failure. Never retry an unknown result. Conditional monthly approval is supported through sequential single-item review, prepare, commit, and verification calls.
+Commit reconstructs the complete review, including the same explicit payment month and freee-verified work month, reopens the exact application, requires unchanged detail and action availability, clicks one exact `承認`, `申請者へ差し戻す`, or `承認を取り消す` button, and verifies `承認済` or `差戻し`. A changed or ambiguous mapping stops before the click. Never use the general approval commit to bypass a monthly review failure. Never retry an unknown result. Conditional monthly approval is supported through sequential single-item review, prepare, commit, and verification calls.
 
 ## Employee application actions
 
@@ -271,7 +273,7 @@ Application writes use two separate commands. First generate a read-only preview
 
 ```bash
 npm run freee -- approvals prepare-action \
-  --id APPLICATION_NO --action approve|return
+  --id APPLICATION_NO --action approve|return|cancel_approval
 ```
 
 The command succeeds only when that exact action is currently available. Before an `approve` action for type `休暇`, it reads every pending manager-approval page and requires no pending `勤務時間修正` with the exact same applicant and target date. A matching correction blocks without a fingerprint even when its structured `workTimeChange` is null. A missing reliable leave applicant or target date also stops fail-closed. It returns the complete detail preview and a SHA-256 `fingerprint`; no business button is clicked. Present the applicant identity, type, target date, content, reason, freee automatic checks, and requested action. Retain and bind the fingerprint to that exact human-readable preview; the user does not need to copy, repeat, or personally compare the raw SHA-256 value.
@@ -280,7 +282,7 @@ When the exact No. and action or an active scoped policy is authorized, use the 
 
 ```bash
 npm run freee -- approvals commit-action \
-  --id APPLICATION_NO --action approve|return \
+  --id APPLICATION_NO --action approve|return|cancel_approval \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 

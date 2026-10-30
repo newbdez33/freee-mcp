@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 
-import type {
-  BrowserApprovalDetail,
-  BrowserApprovalListStatus,
-  BrowserApprovalSummary,
+import {
+  parseApprovalWorkTimeChange,
+  type BrowserApprovalDetail,
+  type BrowserApprovalListStatus,
+  type BrowserApprovalSummary,
 } from "./browser-approvals.js";
 import { CliError } from "./errors.js";
 
@@ -284,6 +285,30 @@ export function isVerifiedCreatedWorkTimeDeletion(
   return created.type === "勤務時間修正"
     && created.targetDate === application.date.replaceAll("-", "/")
     && created.content === "勤務時間を削除";
+}
+
+export function isVerifiedCreatedWorkTimeReplacement(
+  application: Pick<
+    NormalizedPersonalApplicationCreateInput,
+    "kind" | "date" | "workTimeAction" | "clockIn" | "clockOut" | "breakStart" | "breakEnd"
+  >,
+  created: Pick<BrowserApprovalSummary, "type" | "targetDate">,
+  tables: BrowserApprovalDetail["tables"],
+): boolean {
+  if (application.kind !== "work-time-correction"
+      || application.workTimeAction !== "replace"
+      || application.clockIn === null
+      || application.clockOut === null) {
+    return false;
+  }
+  const stored = parseApprovalWorkTimeChange(created, tables)?.after;
+  return created.type === "勤務時間修正"
+    && created.targetDate === application.date.replaceAll("-", "/")
+    && stored?.clockIn?.padStart(5, "0") === application.clockIn
+    && stored?.clockOut?.padStart(5, "0") === application.clockOut
+    && (application.breakStart === null
+      || (stored?.breakStart?.padStart(5, "0") === application.breakStart
+        && stored?.breakEnd?.padStart(5, "0") === application.breakEnd));
 }
 
 export function createPersonalApplicationWithdrawFingerprint(

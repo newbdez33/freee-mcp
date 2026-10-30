@@ -819,8 +819,8 @@ function parseApprovalTargetOptions(
     });
   }
   const action = parsed.values.action;
-  if (policy.allowAction && action !== "approve" && action !== "return") {
-    throw new CliError("INVALID_APPROVAL_ACTION", "`--action` must be approve or return.", {
+  if (policy.allowAction && action !== "approve" && action !== "return" && action !== "cancel_approval") {
+    throw new CliError("INVALID_APPROVAL_ACTION", "`--action` must be approve, return, or cancel_approval.", {
       exitCode: 2,
     });
   }
@@ -834,7 +834,7 @@ function parseApprovalTargetOptions(
   }
   return {
     id,
-    ...(action === "approve" || action === "return" ? { action } : {}),
+    ...(action === "approve" || action === "return" || action === "cancel_approval" ? { action } : {}),
     ...(typeof fingerprint === "string" ? { fingerprint } : {}),
     ...(typeof parsed.values.confirm === "boolean" ? { confirm: parsed.values.confirm } : {}),
   };
@@ -1089,12 +1089,12 @@ function printHelp(): void {
   process.stdout.write("  freee-agent requests commit-withdraw --id NO --fingerprint SHA256 --confirm\n");
   process.stdout.write("  freee-agent approvals list [--status pending|returned|approved|all] [--page N]\n");
   process.stdout.write("  freee-agent approvals detail --id NO\n");
-  process.stdout.write("  freee-agent approvals prepare-action --id NO --action approve|return\n");
-  process.stdout.write("  freee-agent approvals commit-action --id NO --action approve|return --fingerprint SHA256 --confirm\n");
+  process.stdout.write("  freee-agent approvals prepare-action --id NO --action approve|return|cancel_approval\n");
+  process.stdout.write("  freee-agent approvals commit-action --id NO --action approve|return|cancel_approval --fingerprint SHA256 --confirm\n");
   process.stdout.write("  freee-agent monthly-approvals list [--status pending|returned|approved|all] [--page N]\n");
   process.stdout.write("  freee-agent monthly-approvals review --id NO\n");
-  process.stdout.write("  freee-agent monthly-approvals prepare-action --id NO --action approve|return\n");
-  process.stdout.write("  freee-agent monthly-approvals commit-action --id NO --action approve|return --fingerprint SHA256 --confirm\n");
+  process.stdout.write("  freee-agent monthly-approvals prepare-action --id NO --action approve|return|cancel_approval\n");
+  process.stdout.write("  freee-agent monthly-approvals commit-action --id NO --action approve|return|cancel_approval --fingerprint SHA256 --confirm\n");
   process.stdout.write("  freee-agent clock in|break-start|break-end|out [--company-id ID] --confirm\n\n");
   process.stdout.write("Real clock entries and application changes are never made without --confirm.\n");
   process.stdout.write("Select a complete backend with FREEE_BACKEND=api|playwright|auto.\n");

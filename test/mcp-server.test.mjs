@@ -115,6 +115,38 @@ async function connect(service) {
   return { client, server };
 }
 
+test("MCP exposes cancel_approval in both workflows with the same confirmation contract", async () => {
+  const service = createFakeService();
+  const { client, server } = await connect(service);
+  try {
+    for (const prefix of ["freee_approval", "freee_monthly_approval"]) {
+      const prepared = await client.callTool({
+        name: `${prefix}_prepare_action`, arguments: { id: "1234", action: "cancel_approval" },
+      });
+      assert.equal(prepared.isError, undefined);
+      const result = await client.callTool({
+        name: `${prefix}_commit_action`,
+        arguments: { id: "1234", action: "cancel_approval", fingerprint: "a".repeat(64), confirm: true },
+      });
+      assert.equal(result.isError, undefined);
+      assert.deepEqual(service.calls.at(-1), [
+        prefix === "freee_approval" ? "approval-commit" : "monthly-approval-commit",
+        "1234", "cancel_approval", "a".repeat(64), true,
+      ]);
+      const count = service.calls.length;
+      const rejected = await client.callTool({
+        name: `${prefix}_commit_action`,
+        arguments: { id: "1234", action: "cancel_approval", fingerprint: "a".repeat(64), confirm: false },
+      });
+      assert.equal(rejected.isError, true);
+      assert.equal(service.calls.length, count);
+    }
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("MCP server advertises structured freee tools, safety instructions, and annotations", async () => {
   const service = createFakeService();
   const { client, server } = await connect(service);

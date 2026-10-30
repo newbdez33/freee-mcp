@@ -51,7 +51,7 @@ Plugin releases use semantic versions. Maintainers must bump `package.json` and 
 Codex installs `skills/freee` with its Skill installer and registers this pinned, portable STDIO command at user scope:
 
 ```bash
-codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.5.0' freee-mcp
+codex mcp add freee -- npx --yes --package='github:newbdez33/freee-mcp#v0.6.0' freee-mcp
 ```
 
 The opening installation prompt asks Codex to perform both steps. Restart Codex if the newly installed Skill is not discovered immediately, then use `/mcp` to verify the server connection.
@@ -61,7 +61,7 @@ The opening installation prompt asks Codex to perform both steps. Restart Codex 
 Register this as a user-level STDIO MCP command using the client's settings or MCP installer:
 
 ```bash
-npx --yes --package='github:newbdez33/freee-mcp#v0.5.0' freee-mcp
+npx --yes --package='github:newbdez33/freee-mcp#v0.6.0' freee-mcp
 ```
 
 Install `skills/freee` from this repository in the client's global Agent Skills location. OpenCode recognizes `~/.agents/skills/freee`; other Agent Skills-compatible clients may use a different user-level directory. The opening installation prompt lets the running agent select the correct location without creating project files.
@@ -138,6 +138,8 @@ This table describes the current `main` branch. “Covered” means the behavior
 ```bash
 npm ci
 npm test
+npx playwright install chromium
+npm run test:browser
 npm run validate
 npm run package:smoke
 ```
@@ -268,15 +270,15 @@ npm run freee -- requests commit-withdraw --id APPLICATION_NO \
   --fingerprint PREVIEW_SHA256 --confirm
 
 # Employee applications: prepare each item; use an exact instruction or active policy
-npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return
+npm run freee -- approvals prepare-action --id APPLICATION_NO --action approve|return|cancel_approval
 npm run freee -- approvals commit-action --id APPLICATION_NO \
-  --action approve|return --fingerprint PREVIEW_SHA256 --confirm
+  --action approve|return|cancel_approval --fingerprint PREVIEW_SHA256 --confirm
 
 # Monthly attendance approvals: review each item; use an exact instruction or active policy
 npm run freee -- monthly-approvals prepare-action \
-  --id APPLICATION_NO --action approve|return
+  --id APPLICATION_NO --action approve|return|cancel_approval
 npm run freee -- monthly-approvals commit-action \
-  --id APPLICATION_NO --action approve|return \
+  --id APPLICATION_NO --action approve|return|cancel_approval \
   --fingerprint PREVIEW_SHA256 --confirm
 ```
 
@@ -304,6 +306,8 @@ Call `requests options` before creating an application. With `--date`, it reads 
 
 Creation, approved-application cancellation, and pending withdrawal use separate prepare and commit commands. A deletion prepare binds the exact date, `workTimeAction: "delete"`, reason, route, and selected `勤務時間を削除` option. Its commit rebuilds that preview, rechecks the exact selection immediately before clicking, and accepts only one new same-date `勤務時間修正` application whose content is exactly `勤務時間を削除`. An authorized date set is processed through one complete single-date flow at a time without per-date prompts. Cancellation prepare binds the original approved application, optional cancellation reason, official `ApprovalRequest::Revoke` form, approval route, and recent application list. Its commit creates and verifies exactly one new cancellation application; manager approval of that new request is included only when the authorized final outcome expressly covers the follow-up. Creation and cancellation never click the final `申請` during prepare, while withdrawal never clicks `申請を取り下げる`. Every commit reconstructs the same preview, checks it against the exact instruction or active policy, clicks once, and verifies the resulting state. An unknown result is never retried automatically.
 
+Replacement corrections commit each hour/minute option and reread the fields after blur, route selection, and immediately before submission. Verification uses the new same-date application detail's `workTimeChange.after`, including explicitly requested breaks. List summaries are not proof of stored clock values. Missing or mismatched detail returns `PERSONAL_APPLICATION_ACTION_RESULT_UNKNOWN`; never retry that write automatically.
+
 ## Employee application handling
 
 `approvals list` explicitly selects freee's manager-side `承認` tab and defaults to its pending `未承認` queue; it never reads the default employee-side `申請` tab as an approval queue. Each result includes the applicant. `--status returned|approved|all` reads other manager-side states, while `--page N` selects one page. Results report `page`, `pageCount`, `totalCount`, and the current page's `applicationCount`, so agents can continue without emitting an unbounded employee history. The browser waits for the exact freee response and matching rendered row count before parsing, preventing one filter's stale rows from being returned for another. `approvals detail --id` searches the complete paginated manager workflow and returns the application fields, approval route, department, comments, and freee automatic-check results. For supported `勤務時間修正` applications, `workTimeChange` provides structured `before` and `after` values for clock-in, clock-out, break start, and break end; `null` means freee displayed `未入力`. The same comparison is included in approval previews and their safety fingerprints. Both commands are read-only.
@@ -317,13 +321,15 @@ A conditional policy may cover one pass, repeated scans, a date/employee/type ra
 
 Before committing, the CLI rereads the detail. A fingerprint mismatch, missing button, application processed by someone else, or new comment stops the operation and requires a new preview. After the click, the application is reread through the synchronized paginated workflow and must expose the exact expected `承認済` or `差戻し` state. When a self-application leaves the manager history after return, the exact same No. and immutable target fields may instead be verified in the employee history. An application missing from both workflows, or any mismatched target, is reported as unknown and must never be retried automatically. Development tests never perform real approvals or returns.
 
+`cancel_approval` is a separate manager action for an approved application that exposes the exact `承認を取り消す` button. It requires a precise instruction for that application; an approve/return policy does not authorize it. Use the same prepare, fingerprint, and confirm flow, with the dedicated monthly tools for `月次勤怠締め`. One click must produce `差戻し` on the same application; no additional return step is needed. Any other state or unexpected confirmation flow is unknown and must not be retried. This is separate from the employee-side `requests ...-cancel` workflow, which creates a cancellation application.
+
 ## Monthly attendance approval review
 
 `monthly-approvals list` filters one synchronized manager approval page to `月次勤怠締め` applications. It parses one explicit payment month from text such as `2026年09月の支払分`, derives the work month from freee's displayed payment-month/work-month relationship, verifies that pair with the official navigator, and returns both `paymentPeriod` and work `period`. It never treats the payment month or `対象日` as the work month and never hardcodes a one-month subtraction. Use `pageCount` to inspect later source pages; `sourceTotalCount` is the complete count before type filtering, while `applicationCount` is the monthly count on the returned page.
 
 `monthly-approvals review --id` verifies the exact application type and one explicit payment month consistent with `対象日`. It maps that payment month through freee's displayed relationship, navigates the attendance monitor to the resulting work month, maps the applicant to one unique visible member, opens the employee's official attendance page, and verifies the same payment/work pair again before reading the daily table. A missing or ambiguous mapping returns `MONTHLY_APPROVAL_PERIOD_MAPPING_UNCONFIRMED`; a navigation mismatch, duplicate employee identity, missing attendance link, or changed table schema also stops safely instead of returning a partial review. A successful review returns both periods, the monthly summary, one uniquely identified daily attendance table, per-day alerts, page warnings, application detail, and consolidated automatic checks.
 
-Use `monthly-approvals prepare-action --id NO --action approve|return` before every monthly manager write. Its fingerprint binds the explicit payment month, freee-verified work month, full application, monthly summary, daily rows, alerts, checks, and requested action. `monthly-approvals commit-action ... --confirm` is permitted when that complete preview matches an exact instruction or active scoped business policy. The Agent may approve or return monthly applications conditionally in one authorized run, internally processing them one by one without per-item user prompts. Every commit still rederives the mapping, reconstructs the review, reopens the exact application, and stops before clicking if either month or any bound data changed. After one click, it applies the same post-write verification as the general approval workflow. This specialized single-item write path remains pending real freee validation (`LV-W10`).
+Use `monthly-approvals prepare-action --id NO --action approve|return|cancel_approval` before every monthly manager write. Its fingerprint binds the explicit payment month, freee-verified work month, full application, monthly summary, daily rows, alerts, checks, and requested action. `monthly-approvals commit-action ... --confirm` is permitted when that complete preview matches an exact instruction or active scoped business policy. The Agent may approve or return monthly applications conditionally in one authorized run, internally processing them one by one without per-item user prompts. Every commit still rederives the mapping, reconstructs the review, reopens the exact application, and stops before clicking if either month or any bound data changed. After one click, it applies the same post-write verification as the general approval workflow. This specialized single-item write path remains pending real freee validation (`LV-W10`).
 
 ## Backend selection
 

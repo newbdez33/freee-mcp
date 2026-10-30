@@ -38,6 +38,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Install Chromium for local fixture tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Test time controls in Chromium
+        run: npm run test:browser
+
       - name: Validate distribution metadata
         run: npm run validate
 
